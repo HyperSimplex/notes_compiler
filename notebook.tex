@@ -1,0 +1,4707 @@
+\documentclass[8pt]{extarticle} 
+
+% \usepackage[fleqn]{amsmath}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+% \usepackage{amsmath,amsfonts,amsthm,bm}
+% \usepackage{breqn}
+\usepackage{mathtools}
+% \usepackage{amssymb}
+% \usepackage{bbm}
+\usepackage{tikz}
+\usepackage[ruled,vlined,linesnumbered,lined,boxed,commentsnumbered]{algorithm2e}
+\usepackage{algpseudocode}
+\usepackage{siunitx}
+% \usepackage{graphicx}
+\usepackage{subcaption}
+%% \usepackage{datetime}
+\usepackage{multirow}
+\usepackage{multicol}
+% \usepackage{mathrsfs}
+\usepackage{fancyhdr}
+\usepackage{fancyvrb}
+\DefineVerbatimEnvironment{Code}{BVerbatim}{baseline=t}
+
+\usepackage{parskip} %turns off paragraph indent
+\pagestyle{fancy}
+
+\usepackage{xcolor}
+\usepackage{mdframed}
+
+\usepackage[small]{titlesec}
+
+\usepackage{hanging}
+
+\usepackage{listings}% http://ctan.org/pkg/listings
+\lstset{
+  basicstyle=\ttfamily\small,
+  mathescape
+}
+
+\usepackage{tabularray}
+
+\usetikzlibrary{positioning}
+\usetikzlibrary{shapes,arrows}
+% Define block styles
+\tikzset{
+    block/.style={rectangle, draw, line width=0.5mm, black, text width=5em, text centered,
+                  rounded corners, minimum height=2em},
+    line/.style={draw, -latex}
+}% <- if you insist in using this in the document add this % here.
+
+\DeclareMathOperator*{\argmin}{argmin}
+\newcommand*{\argminl}{\argmin\limits}
+
+% \newcommand{\mathleft}{\@fleqntrue\@mathmargin0pt}
+% \newcommand{\R}{\mathbb{R}}
+% \newcommand{\Z}{\mathbb{Z}} 
+% \newcommand{\N}{\mathbb{N}}
+% \newcommand{\ppartial}[2]{\frac{\partial #1}{\partial #2}}
+% \newcommand{\p}{\partial}
+% \newcommand{\te}[1]{\text{#1 }}
+% \newcommand{\norm}[1]{\|#1\|}
+
+\newcommand*{\vrectangle}{{\setlength{\fboxsep}{0pt}\fbox{\phantom{l}}}}
+
+\setcounter{MaxMatrixCols}{20}
+
+% remove excess vertical space for align equations
+\setlength{\abovedisplayskip}{0pt}
+\setlength{\belowdisplayskip}{0pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}{Corollary}[theorem]
+\newtheorem{lemma}[theorem]{Lemma}
+
+\begin {document}
+
+\lhead{Notes - Compiler Construction, Yuan Liu}
+  
+\begin{multicols*}{2}
+
+  Gathered notes from:
+  \begin{itemize}
+  \item Modern Compiler Implementation in C \cite{appelbook}
+  \item High Performace Compilers for Parallel Computing \cite{wolfebook}
+  \item The implementation of Functional Programming Languages \cite{peyton1987}
+  \end{itemize}
+
+  \section{Parsing}
+
+  Common types of parsers:
+  \begin{itemize}
+  \item LL(k): left to right, left-most derivation, k token lookahead
+  \item LR(k): left to right, right-most derivation, k token lookahead
+  \end{itemize}
+  
+  \subsection{Utility helpers}
+  
+  \begin{itemize}
+  \item \verb%First(x)%: set of all terminal symbols at the front of strings derivable from \verb%x%
+  \item \verb%Nullable(x)%: true if empty string is derivable from \verb%x%, false otherwise
+  \item \verb%Follow(x)%: set of of all terminal symbols that can immediately follow \verb%x%
+  \end{itemize}
+
+  Constructing the above using iterative fixed point algorithm:
+
+  \begin{algorithm}[H]
+    \For{$i\ \in symbols$}{
+      \uIf{$terminal(i)$}{
+        $first[i] = {i}$\\
+      }\Else{
+        $first[i] = \{\}$\\
+      }
+      $null[i] = false$\\
+      $follow[i] = \{\}$\\
+    }
+    \While{true}{
+      \For{$(x \rightarrow y_0\ y_1\ y_2\ y_n)\ in\ productions$}{
+        \uIf{$(\forall i \in [0..n])\ null[y_i]$}{
+          $null[x] \leftarrow true$
+        }
+        \uIf{$(\forall i \in [0..k))\ null[y_i]) \wedge\ !null[y_k]$}{
+          $first[x] \leftarrow first[x] \cup first[y_k]$
+        }
+        \For{$k \in [0..n]$} {
+          \uIf{$(\forall i \in [k+1..n])\ null[y_i]$} {
+            $follow[y_k] \leftarrow follow[y_k] \cup follow[x]$
+          }
+        }
+        \For{$k\ \in [0..n]$} {
+          \uIf{$(\forall i \in [k+1..j)\ null[y_i]\ \wedge\ !null[y_j]$} {
+            $follow[y_k] \leftarrow follow[y_k] \cup first[y_j]$
+          }
+        }
+      }
+      \uIf{$no\ change\ in\ first/follow/null\ set$}{
+        break
+      }
+    }
+    \caption{Fist/Follow/Nullable Computation\label{Algo_FistFollowNullable}}
+  \end{algorithm}
+
+  \vfill\null
+  \columnbreak
+  
+  \subsection{LL(1)}
+  Implementation can use recursive descent. For LL(1): 1st terimnal symbol of subexpression has enough information to pick production rule to use.
+
+  Recursive descent: mapping a function for each production rule.
+
+  If there exists overlapping symcols in First set for different production rules, then the algorithm cannot be handled.
+
+  Solution: left factor: create auxilliary intermediate symbols to remove left recusion (convert to right recursion).
+
+  For production rules with same starting symbols, Take the different endings of the production rules and create a new symbol for them.
+  \begin{align*}
+    &\begin{aligned}
+    &S \rightarrow if\ A\ then\ B\ else\ C\\
+    &S \rightarrow if\ A\ then\ B
+     \end{aligned}\\
+    &\text{to:}\\
+    &\begin{aligned}
+    &S \rightarrow if\ A\ then\ B\ D\\
+    &D \rightarrow else\ C\\
+    &D \rightarrow \O
+     \end{aligned}
+  \end{align*}
+  Another example:
+  \begin{align*}
+  &\begin{aligned}
+    &E \rightarrow T\\
+    &E \rightarrow E + T
+  \end{aligned}\\
+    &\text{to:}\\
+  &\begin{aligned}
+    &E \rightarrow T\ E_2\\
+    &E_2 \rightarrow +\ T\ E_2\\
+    &E_2 \rightarrow \O\\
+   \end{aligned}
+  \end{align*}
+  
+  \vfill\null
+  \columnbreak
+    
+  \subsection{LR(0)}
+  Characterized by:\\
+  Use of stack of symbols processed, optionally use stack of states for caching (avoid scanning all elements in symbol stack to determine state). Apply DFA to the stack to determine action (shift/reduce). Shift-reduce conflict exists $\implies$ cannot be processed by parser.
+
+  Definitions:\\
+  Item $\equiv$ a grammar rule and dot (position on RHS of the rule)\\
+  State $\equiv$ a set of items
+
+  Actions using DFA applied to state stack:
+  \begin{itemize}
+  \item shift(n): advance 1 input symbol and push state n onto the stack
+  \item reduce(x): RHS match grammar rule x; pop states off from stack as many times as number of symbols on RHS of rule x. LHS symbol x of the rule is the current symbol.
+  \item goto(n): look at current state on top of the stack and the current symbol s (from previous reduction) to get transition to the next state n (push state n onto the stack)
+  \item accept: end of successful parse
+  \item error: $\O$/empty entry transitioned
+  \end{itemize}
+
+  Operations on State (I):
+  \begin{itemize}
+  \item closure(I):  adds more items when there are more matching items (dot is to the left of a non-terminal)
+  \item goto(I, X): move dot past all X in all items in set I, where X is a grammar symbol (non-terminal)
+  \end{itemize}
+
+  \vfill\null
+  \columnbreak
+  
+  \subsubsection{Algorithms}
+
+  \begin{algorithm}[H]
+    //augment to include a starting production (S' $\rightarrow$ .S\$), where S is the original top level symbol\\
+    let $T$ = \{Closure(S' $\rightarrow$ .S\$)\} //a set of states\\
+    let $E$ = \{\} //set of shift or goto edges\\
+    let $changed$ = true\\
+    \While{changed}{
+      let $T_1$ = \{\}\\
+      let $E_1$ = \{\}\\ 
+      \For{state $I$ $\in$ $T$}{
+        \For{item $(A \rightarrow \alpha . X \beta)$ $\in$ $I$}{
+          $T_1 \leftarrow$ $T_1 \cup$ \{ Goto(I, X) \}\\
+          $E_1 \leftarrow$ $E_1 \cup$ \{ I $\xrightarrow{X}$ J \}\\
+        }
+      }
+      $changed$ = $T_1 \neq T \vee E_1 \neq E$\\
+      $T \leftarrow T_1$\\
+      $E \leftarrow E_1$\\
+    }
+    //calculate reduce actions:\\
+    $R \leftarrow \{\}$\\
+    \For{state $I$ $\in$ $T$}{
+      \For{item $(A \rightarrow \gamma .)$ $\in$ $I$}{
+        $R \leftarrow R \cup \{(I, A \rightarrow \gamma)\}$
+      }
+    }
+    //construct parser table:\\
+    \For{(I $\xrightarrow{X}$ J) $\in E$ }{
+      $X$ is a terminal $\implies$ shift J at (I, X)\\
+      $X$ is a non-terminal $\implies$ goto J at (I, X)
+    }
+    \For{state I $\in$ T}{
+      \For{item $\in$ state I}{
+        match item \{\\
+        \  (S' $\rightarrow S.\$$) $\implies$ accept at (I, \$)\\
+        \  prod n (A $\rightarrow$ $\gamma$.) $\implies$ reduce n at (I, Y) $\forall$ Y\\
+        \}
+      }
+    }
+    \caption{LR(0) Parser Table Construction\label{Algo_LR0ParserTable}}
+  \end{algorithm}
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{I(input State), X(a symbol)}
+    \Output{output State}
+    $Z$: State = \{\}\\
+    \For{item $(A \rightarrow \alpha . X \beta)$ $\in$ $I$}{
+      $Z$ $\leftarrow$ $Z \cup$ \{$(A \rightarrow \alpha X. \beta)$\}\\
+    }
+    return Closure($Z$)
+    \caption{Goto\label{Algo_goto}}
+  \end{algorithm}
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{I(input State)}
+    \Output{output State}
+    let $changed$ = true\\
+    \While{changed}{
+      let $Z \leftarrow I$\\
+      \For{item $(A \rightarrow \alpha . X \beta)$ $\in$ $I$}{
+        \For{item ($X \rightarrow . \gamma$) $\in$ productions}{
+          $Z \leftarrow Z \cup$ \{($X \rightarrow . \gamma$)\}\\
+        }
+      }
+      $changed \leftarrow Z \neq I$\\
+      $I \leftarrow Z$\\
+    }
+    return $I$
+    \caption{Closure\label{Algo_closure}}
+  \end{algorithm}
+  
+  \vfill\null
+  \columnbreak
+  
+  \subsection{SLR}
+  Modification of LR(0):\\
+  Add reduction action that takes acount of the Follow set:\\
+  (I, X, A $\rightarrow$ $\alpha$), State I, top symbol X, reduce by $A \rightarrow \alpha$
+
+  Resulting parse table contains fewer reduction entries than tha tale for LR(0).
+
+  \begin{algorithm}[H]
+    //calculate reduce actions:\\
+    $R \leftarrow \{\}$\\
+    \For{state $I$ $\in$ $T$}{
+      \For{item $(A \rightarrow \gamma .)$ $\in$ $I$}{
+        \For{$X \in$ Follow(A)}{
+          $R \leftarrow R \cup \{(I, X, A \rightarrow \gamma)\}$
+        }
+      }
+    }
+    \caption{SLR Reduce Action Modification\label{Algo_SLR}}
+  \end{algorithm}
+
+  \subsection{LR(1)}
+  Idea: augment item to include a lookahead symbol x:\\
+  $(A \rightarrow \alpha . \beta, x)$ $\iff$ sequence $\alpha$ is on the top of the stack, input is derivable from $\beta x$
+  
+  Computation of Goto, Closure, and State also augmented by incoporating the additional lookahead symbol.
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{I(input State), X(a symbol)}
+    \Output{output State}
+    $Z$: State = \{\}\\
+    \For{item $(A \rightarrow \alpha . X \beta, \gamma)$ $\in$ $I$}{
+      $Z$ $\leftarrow$ $Z \cup$ \{$(A \rightarrow \alpha X. \beta, \gamma)$\}\\
+    }
+    return Closure($Z$)
+    \caption{LR(1) Goto\label{Algo_goto_lr1}}
+  \end{algorithm}
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{I(input State)}
+    \Output{output State}
+    let $changed$ = true\\
+    \While{changed}{
+      let $Z \leftarrow I$\\
+      \For{item $(A \rightarrow \alpha . X \beta, z)$ $\in$ $I$}{
+        \For{item ($X \rightarrow . \gamma$) $\in$ productions}{
+          \For{c $\in$ First($\beta z$)}{
+            $Z \leftarrow Z \cup$ \{($X \rightarrow . \gamma$, c)\}
+          }
+        }
+      }
+      $changed \leftarrow Z \neq I$\\
+      $I \leftarrow Z$\\
+    }
+    return $I$
+    \caption{LR(1) Closure\label{Algo_closure_lr1}}
+  \end{algorithm}
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{T(set of States)}
+    \Output{R(reduce actions)}
+    $R \leftarrow \{\}$\\
+    \For{state $I$ $\in$ $T$}{
+      \For{item $(A \rightarrow \gamma ., \beta)$ $\in$ $I$}{
+        //in state I with lookahead symbol $\beta$,\\
+        //  reduce by $A \rightarrow \gamma$\\
+        $R \leftarrow R \cup \{(I, \beta, A \rightarrow \gamma)\}$
+      }
+    }
+    \caption{LR(1) Construct Reduce Actions\label{Algo_reduce_lr1}}
+  \end{algorithm}
+
+  Augment the start state:\\
+  $\{(S^{\prime} \rightarrow . S \$, @)\}$, where @ denotes end of file and will never be shifted.
+
+  \subsubsection{Ambiguous Grammar}
+  Shift-reduce conflicts: resolve by prioritizing one of them, or introduce intermediate non-terminals for matched statement and unmatched statement.
+
+  If it is not possible to infer type of variable during parsing, defer that until the semantic phase.
+  
+  \subsection{LALR(1)}
+  Idea: reduce size of parse table by meerging LR(1) parse table with identical states, exclusing lookahead sets.
+
+  \section{Concrete Syntax}
+  todo
+  \vfill\null
+  \columnbreak
+  
+  \section{Abstract Syntax}
+  Transformations to abstract syntax:\\
+  source $\rightarrow_{lexer}$ tokens $\rightarrow$ concrete parse tree $\rightarrow$ abstract syntax
+
+  concrete parse tree:
+  \begin{itemize}
+  \item represents conrete syntax of source language
+  \item leaf for input token
+  \item internal node for each grammar rule reduced
+  \item may contain uninformative tokens that are not useful after parsing (contains extra non-terminals and intermediate production rules for technicality of parsing)
+  \end{itemize}
+
+  abstract syntax:
+  \begin{itemize}
+  \item isolation between parsing and semantic analysis via an interface
+  \item parsing issues resolved when abstract syntax is obtained, even though grammar of abstract syntrax may be unfriendly to parsing
+  \item discards some of the uninformation tokens present in conrete parse tree
+  \item contains phrase structure of source program
+  \item include source location info for error reporting (need to be propagated though tokenizer phase as well)
+  \item may use symbols instead of strings for efficiency (convert it once and use symbols throughout the rest of the program)
+  \item may need special coalescing for mutually recursive functions and types (make them into 1 type instead of separate ones)
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Semantic Analysis, Type Checking}
+  \subsection{environments}
+  Mapping of identifier to type or value (variable/function)
+
+  Use of predefined/base environments:
+  \begin{itemize}
+    \item base type environment: natively supported types\\
+      eg: \verb%int -> TyInt, string -> TyString%
+    \item base value environment: predefined functions
+  \end{itemize}
+
+  As compilation continues, environments are:
+  \begin{itemize}
+  \item augmented
+  \item queried for: type checking, intermediate code generation
+  \end{itemize}
+
+  Strategies for environment management:
+  \begin{itemize}
+  \item auxilliary stack, or
+  \item threading nodes to achieve stack-like behaviour
+  \item special token/node for delimiting scope under consideration
+  \end{itemize}
+
+  \subsection{Semantic Module}
+
+  Top level function: give it an abstact syntax for semantic module to process
+
+  Things that occur during semantic processing:
+  \begin{itemize}
+  \item use abstract syntax interface for manipulating nodes during semantic processing
+  \item semantic checking on reserved words in language
+  \item error message for mismatched types / undeclared identifiers
+  \end{itemize}
+    
+  Use of mutual recursion to process different types of nodes in abstract syntax:\\
+  \verb%translate_var(..) -> expty%\\
+  \verb%translate_exp(..) -> expty%\\
+  \verb%translate_dec(..) -> expty%\\
+  \verb%translate_ty(..) -> expty%
+
+  where:
+
+  \verb%struct expty { TrExp exp, Ty_ty ty }% is the result of type checking
+  \verb%TrExp% is the translated expression in intermediate code
+
+  May include intermediate code translation if type checking is combined with translation phase.
+
+  \subsubsection{Type checking of different expressions/parts of abstract syntax}
+  Declaration:\\
+  Augment env. with identifiers in initializing expression.\\
+  Optional type constraints in declarations checked with initializing expression for compatibility.
+  \begin{itemize}
+  \item Type Declaration\\
+    simply augment type env. with \verb%iden -> type mapping%
+  \item Function Declaration
+    \begin{itemize}
+    \item process formal param. list types and return type, augment type env. with:\\
+      \verb%iden -> func type params%
+    \item begin val env. scope\
+    \item process value parameters and augment val env. with \verb%param iden -> parameter type%
+    \item process the body of function resursively
+    \item exit the current val env. scope (pop items in env. until last env. scope token is reached and pop that as well)
+    \end{itemize}
+  \item Variable Declaration
+    \begin{itemize}
+    \item translate expression on initializing expression
+    \item obtain optional constraint: check against translated initializing expression's type
+    \item enter entry,  \verb% iden -> variable type%, into val env.
+    \end{itemize}
+  \item Let Expression
+    \begin{itemize}
+    \item begin val env. scope
+    \item begin type env. scope
+    \item process each declaration in let expression
+    \item process body of let expression
+    \item exit val env. scope
+    \item exit type env. scope
+    \item return translated expression of body of let expression
+    \end{itemize}
+  \item Mutually Recursive Types and Functions
+    \begin{itemize}
+    \item process headers on 1st pass, use placeholders and argument env.
+    \item process bodies on 2nd pass, using previously augmented environment
+    \item cycle checking for validity: cycle can only appear in fields of records or arrays
+    \end{itemize}
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Stack Frame / Activation Record}
+  \begin{itemize}
+  \item higher order function: function valued variable
+  \item nesting of higher order functions:\\
+    local variables need longer lifetimes then original enclosing function (need something more powerful than a stack data structure to hold prolonged variables)
+  \item nested function is not supported or higher order function is not supported $\implies$ implementable using stack to store variables in instantiated functions on their entry
+  \item for stackable language: use stack frame to store locals and temporaries of an instantiated function
+  \item frame pointer: local origin of addressing for current function's stack frame
+  \item stack pointer: boundary of current valid frame
+  \item use of frame pointer for referencing offsets of function formal parameters / local variables
+  \item conditions of a variable to be in a frame and not register-resident(*: condition of an escape variable):
+    \begin{itemize}
+    \item pass by reference (need actual memory address) *
+    \item access of variable from an inner nested function *
+    \item large variable
+    \item address arithmetic on variable *
+    \item hardware register reserved for other purpose
+    \item lack of hardware register vacancy
+    \end{itemize}
+  \end{itemize}
+
+  \subsection{Frame Module}
+  Abstraction for implementation detail of frame layout depending on specific machines. Populates info related to frame that is specific to target machine) into some data structures.
+  
+  Sample interface:
+\begin{verbatim}
+module Fr {
+  fn new_frame(NameLabel, [formal_escape]) -> FrFrame;
+  ..
+}
+
+trait FrFrame {
+  fn get_frame_label(&self) -> NameLabel;
+  fn get_formals() -> [FrAccess];
+  fn alloc_local(escape: bool) -> FrAccess; //alloc var in frame
+}
+\end{verbatim}
+  
+\begin{verbatim}
+enum FrAccess {
+  InFrame(isize), //in memory, relative offset from fp
+  InReg(NameTemp), //in register
+}
+\end{verbatim}
+
+  Also perform shift of view between caller and callee depending on calling convention of target machine (do this per formal parameter passed into new frame, eg when constructing a new frame):
+  \begin{itemize}
+  \item parameters seen from inside the function
+  \item instruction to create shift of view to manipulate stackpointer/framepointer, save/move of values
+  \end{itemize}
+
+  Concrete frame data structure contains info on:
+  \begin{itemize}
+  \item formal parameter locations
+  \item view shift instructions
+  \item locals allocated in frame
+  \item label of where machine code for the function begins
+  \end{itemize}
+
+  Local variable allocation within frame:
+  \begin{itemize}
+  \item each declaration results in space reservation in frame (may be optimized out in later compiler phases)
+  \item end of a scope disassociates names to allocated local variables in that scope
+  \end{itemize}
+
+  Calculating escape of a variable via mutual recursion depending on Abstract Syntax node type, record escape info in an environment, eg: True: escape, False: not escape.
+  
+  Use this environment when processing expressions in nested scopes within the scope of the said variable. Mark escape to true for the variable when:
+  \begin{itemize}
+  \item encounter use of the variable
+  \item address of variable taken explicitly or call by reference
+  \end{itemize}
+
+  \subsection{Name Module}
+  
+  \verb%NameLabel%: abstraction for location of procedure body / code address (static memory address)\\
+  \verb%NameTemp%: abstraction for location of register associated with variable
+
+  Defer concrete assignments to later phases of compilation.
+
+  Interface:
+\begin{verbatim}
+module Name {
+  fn new_temp() -> NameTemp; //auto-generate id
+  fn new_label() -> NameLabel; //auto-generated id
+  fn new_label(String) -> NameLabel;
+  ..
+}
+
+trait NameLabel {
+  fn get_label_str() -> String;
+}
+\end{verbatim}
+
+  \subsection{Layers of Abstractions}
+  \begin{center}
+    \begin{tabular}{ | c | c |}
+      \hline
+      \multicolumn{2}{|c|}{Semant} \\
+      \hline
+      \multicolumn{2}{|c|}{Translate} \\
+      \hline
+      Frame & Name \\
+      \hline
+    \end{tabular}
+  \end{center}
+
+  \begin{itemize}
+  \item Semant: operates on AST level for type checking
+  \item Translate: provides notion of scopes and static nesting levels, translation to intermediate representation for later phases
+  \item Frame: view shift conventions depending on target machine
+  \item Name: label and temp naming abstraction for deferred assignment
+  \end{itemize}
+
+  \vfill\null
+  \columnbreak
+    
+  \subsection{Environment}
+  Information needed in an environment:
+
+  variable entry:
+  \begin{itemize}
+  \item Type
+  \item \verb%TrAccess%
+  \end{itemize}
+
+  function entry:
+  \begin{itemize}
+  \item Types of formal parameters
+  \item Type of return value
+  \item label of function
+  \item \verb%TrLevel%
+  \end{itemize}
+
+\begin{verbatim}
+enum EnvEntry {
+  EntryVar((TrAccess, Type)),
+  EntryFun((TrLevel, //static nesting level
+            NameLabel,
+            [TypeFormal],
+            TypeReturn)
+}
+type TypeFormal = Type;
+type TypeReturn = Type;
+\end{verbatim}
+  
+  \subsection{Translate interface}
+
+\begin{verbatim}
+module Tr {
+  fn new_level(parent: TrLevel,
+               label: NameLabel,
+               formal_escapes: [bool]) -> TrLevel;
+  ..
+}
+
+impl TrLevel {
+  fn get_formals() -> [TrAccess];
+  fn alloc_local(escape: bool) -> TrAccess;
+  ..
+}
+
+impl TrAccess {
+  //static nesting level of declaration
+  //used in query of variable in its frame of declaration
+  TrLevel level, 
+  FrAccess access,
+}
+\end{verbatim}
+  
+  \verb%Tr::new_level(..)%:
+  \begin{itemize}
+  \item augment formal parameter list with extra entry for static link (set to escape)
+  \item calls \verb%Fr::new_frame(..)% with label and formal parameter list, get back a \verb%FrFrame% abstracted object (use it to access formals/allocated locals/etc.)
+  \end{itemize}
+
+  \verb%Tr::alloc_local(TrLevel, escape: bool) -> TrAccess%:
+  \begin{itemize}
+  \item create \verb%FrAccess%, via \verb%Frame::alloc_local(..)% provided by Frame module
+  \item return \verb%(TrLevel, FrAccess)% wrapped in \verb%TrAccess%
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+    
+  \section{Translation to Intermediate Representation}
+
+  Goals:
+  \begin{itemize}
+  \item lower to abstracted machine operation without committing too much to specific concrete machine detail
+  \item agnostic to source languages
+  \item allow different transformations and analysis to be performed on it before lowering to lower level machine language
+  \end{itemize}
+
+  Function bodies translated to IR.
+
+  Defer entry and exit of function to glue code that will take care of bookkeeping and respect stack/register conventions.
+
+  3 categories of expressions in IR:
+\begin{verbatim}
+enum TrExp {
+  TrEx(TExp), //expression
+  TrNx(TStm), //no result
+  TrCx(Cx), //conditional with jumps
+}
+
+enum TExp {
+  BinOp((TBinOp, TExp left, TExp right)),
+  Mem(..),
+  Temp(..),
+  Call(..),
+  ..
+}
+
+enum TStm {
+  Seq((TStm left, TStm right)),
+  Label(..),
+  Jump(..),
+  Exp(..),
+  ..
+}
+
+struct Cx {
+  PatchList trues, //defer filling in
+  PatchList falses,
+  TStm stm, //sequence of cjumps and labels
+}
+\end{verbatim}
+
+  Casting between the above types of expressions may need insertion of additional instructions and temporaries. Helper functions:
+
+\begin{verbatim}
+tr_ex(TExp) -> TrExp;
+tr_nx(TStm) -> TrExp;
+tr_cx(Cx) -> TrExp;
+
+un_cx(TrExp) -> Cx;
+un_nx(TrExp) -> T_Stm;
+un_ex(TrExp) -> TExp;
+\end{verbatim}
+  
+  Translate module need to convert Abstract Syntax into IR types.
+  Eg for a variable declared in stack: \verb%Mem(BinOp(Plus, Temp fp, Const k))%
+
+  Conditional
+  \begin{itemize}
+  \item Composition of statements and labels.
+  \item Use of patchlist to fill in jump destinations (places where labels need to be filled in) later.
+  \end{itemize}
+  
+  TrExp structure in IR: union of expression, statement, conditional.
+
+  \subsection{Translation of Types to IR}
+
+  \subsubsection{Translate Module Interface}
+  \begin{itemize}
+  \item manipulation of IR nodes handled by Translate module
+  \item Semant module is agnostic to IR nodes
+  \item handles static nesting level for escaped variables
+  \item has access to Frame module, which contains machine dependent definitions
+  \end{itemize}
+  
+  \subsubsection{Example for SimpleVar (variable declared in stack frame)}
+
+  Semant module's \verb%trans_var(..)% type-checks variable using type env. and variable env., returns \verb%ExpTy% with \verb%TrExp% and \verb%TyTy%
+
+  IR translation phase adds additional info. into the \verb%TrExp% structure:
+
+  \begin{tikzpicture}
+    \node(mem) {Mem};
+    \node(binop) [below = 0.5cm of mem]{BinOp};
+    \node(plus) [below = 0.5cm of binop] {Plus};
+    \node(temp) [right = 0.5cm of plus] {Temp fp};
+    \node(const) [right = 0.5cm of temp] {Const k};
+    
+    \draw [->] (mem) -- node[left, pos=0.2] {} (binop) ;
+    \draw [->] (binop) -- node[left, pos=0.2] {} (plus) ;
+    \draw [->] (binop) -- node[left, pos=0.2] {} (temp) ;
+    \draw [->] (binop) -- node[left, pos=0.2] {} (const) ;
+  \end{tikzpicture}
+
+  Use Semant module to provide access of variable, level of function where variable is used to translate module function, and get back a \verb%TrExp%
+
+\begin{verbatim}
+TrSimpleVar(TrAccess, TrLevel) -> TrExp
+\end{verbatim}
+
+  where:\\
+  \verb%TrAccess% contains level of variable declaration\\
+  \verb%TrLevel% is the level of variable use
+
+  Turning \verb%FrAccess% (formals and local variables allocated in frame/register) into IR expression:
+\begin{verbatim}
+FrExp(FrAccess, TrExp) -> TrExp
+\end{verbatim}
+  where:\\
+  \verb%TrExp% is the frame pointer where \verb%FrAccess% lives, calculated via static links (variable may be in different static nesting level); ignored if variable is in register.
+  \verb%TrExp% is the generated IR with pointer and offset calculations
+
+  Calculating \verb%TrExp% using static links for SimpleVar:
+
+  \verb%tr_exp = Mem(+(Const% $k_n$, \verb%Mem(+(Const% $k_{n-1}$\verb%, ..%\\
+  \verb%  Mem(+(Const% $k_1$, \verb%Temp fp))..)%
+
+  where:\\
+  $k_1,..,k_n$ are static link offsets in nested functions\\
+  \verb%fp% is the current frame pointer of where the variable is used
+
+  let $l_f$ be the level of function $f$ where variable is used\\
+  let $l_g$ be the level of function $g$ where variable is declared\\
+  then $l_f - l_g$ static link offsets are followed to calculate variable location where it is originally declared
+
+  \subsection{Large Variable}
+  Eg: arrays and records
+
+  Implementation variations:
+  \begin{itemize}
+  \item pointers: assignment means pointer assignment
+  \item content as value: assignment means copying entire value
+  \end{itemize}
+
+  \subsection{Structured l-value}
+  large values that don't fit in 1 word\\
+  data structure may need additional info for size\\
+  eg: \verb%Mem% operator needs size parameter:\\
+  \verb%TrMem(TrExp, size) -> TrExp%\\
+  \verb%Mem(+(Temp fp, Const k), S)%
+
+  \subsection{Subscript/Field Selection}
+  Compute offset from  a base to get a component of interest
+
+  \subsection{Array subscript expression}
+  \begin{itemize}
+  \item l-value for base and smaller subranges
+  \item l-value coerced to r-value via \verb%Mem% operator in cases of:\\
+    1) pass by value, 2) assignment to another array variable
+  \end{itemize}
+
+  \subsection{Language without structured l-value}
+  Pointers are passed instead where base address of l-value object is the value stored in a pointer variable $\implies$ an additional \verb%Mem% operator is required to ``deref'' the pointer.
+
+  accessing element of width w at index i of an array with base address stored in variable e:\\
+  \verb%Mem(Plus((Mem e), BinOp(Mul, i, Const w)))%
+
+  analogous to \verb%*(*e + i*w))% in C code
+
+  l-value is technically an address without \verb%Mem% operator.
+
+  \subsection{Error detection for out of bounds component access}
+  \begin{itemize}
+  \item compile time checks desirable
+  \item nullptr checks before deref
+  \end{itemize}
+
+  \subsection{Convert if else to conditional jump}
+  convert \verb%if a then b else c% to conditional jump:
+  \begin{itemize}
+  \item use of temporary and true/false labels
+  \item move instruction to temporary in branches
+  \item use of \verb%un_cx(a), un_ex(b), un_ex(c)%
+  \item 1 final join label for branches
+  \item eg: nested conditionals:\\
+    \verb%Seq(cx(s_1,z,f), Seq(z, cx(s_2,t,f)))%
+  \end{itemize}
+
+  \subsection{String comparison}
+  use of external runtime routine via \verb%Call% node
+
+  \subsection{Long lived objects allocated on the heap}
+  \begin{enumerate}
+  \item call a runtime function to allocate space and return pointer to a temporary \verb%r%
+  \item do a series of \verb%Move%s using returned pointer and offsets to initialize large values
+  \item reading the expression is \verb%Temp(r)%
+  \end{enumerate}
+
+  \subsection{Calling external runtime function}
+  \verb%Call(Name(NameLabel("init_array")),%\\
+  \verb%  TrExpList(a, TrExpList(b, null)))%\\
+  $\iff$ \verb%init_array(a,b);%
+
+  Possibly wrap in a helper in Frame module:\\
+  \verb%Fr::external_call(f: String, args: TrExpList) -> TrExp%
+
+  \subsection{Function call}
+  \verb%Call(l: NameLabel, args: [sl, e_1, e_2, ..])%\\
+  where:\\
+  \verb%l%: label of function to call\\
+  \verb%sl%: static link (address of frame of enclosing function)\\
+  \verb%e_1, e_2, ...%: other normal arguments
+
+  \subsection{Declarations}
+  \verb%trans_dec(..)% also side-effects the frame data structure:
+  \begin{itemize}
+  \item per variable declaration: additional space will be reserved in current frame
+  \item per function declaration: new ``fragment'' of code will be kept for function body
+  \item variable initialization / definition:
+    \begin{itemize}
+    \item translates to an expression, put before the ody of \verb%let% expression
+    \item return \verb%TrExp% containing assignment expressions that accomplish initializations of variables
+    \end{itemize}
+  \item function definition: translation to a segment of assembly language with:
+    \begin{itemize}
+    \item prologue: setup instructions for function call
+    \item body: containing body expression translation
+    \item epilogue: teardown instructions for function call
+    \end{itemize}
+  \end{itemize}
+
+  \subsubsection{prologue}
+  \begin{itemize}
+  \item pseudo instruction for an assembly language
+  \item label definition for function name
+  \item instructions to adjust stack pointer in allocating new frame
+  \item instructions to save escaping arguments into frame (including staic link)
+  \item instructions to move non-escaping arguments into fresh temporary registers
+  \item store instructions to save callee-save registers (eg: return address register)
+  \end{itemize}
+
+  \subsubsection{Epilogue}
+  \begin{itemize}
+  \item instruction to move return value to register reserved for the purpose
+  \item load instructions to restore callee-save registers
+  \item instruction to reset stack pointer (frame deallocation)
+  \item return instructions (jump to return address)
+  \item announce end of function to assembler
+  \end{itemize}
+
+  Many of these info (eg: exact frame size) are unknown until later, so these instructions need to be generated late in the compilation process
+
+  \subsection{Procedure Fragments}
+  Using:
+  \begin{itemize}
+  \item already translated function body expression, and
+  \item function definition with a static nesting level
+  \end{itemize}
+    
+  Translate phase should:
+  \begin{itemize}
+  \item produce a descriptor for function containing necessary information:
+    \begin{itemize}
+    \item frame descriptor with machine specific info. about local variables and parameters
+    \item result returned from a helper function that does restore of registers and moving incoming formal parameters
+    \end{itemize}
+  \item define an interface within Translate module via a frag datatype (this gets accumlated into a list during translation of procedures)
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Basic Blocks, Traces}
+  Goal: transform structure of tree nodes (IR) so that resulting trees are in a canonical form that can be further linearized and reordered without unsoundness
+
+  Strategy:
+  \begin{itemize}
+  \item pull ESEQs out of list of expressions/statements and lift them to the top of the tree; these get transformed into SEQs; linearize them into sequential instructions
+  \item restrict CALLs to occur only under specific types of node: \verb%EXP(..), MOVE(TEMP(t, ..))%
+    \item parent of a \verb%SEQ% node can only be a \verb%SEQ% node
+  \end{itemize}
+
+  \subsection{Lifting ESEQ out of expressions}
+  $\text{ESEQ(s, e)} = e_{\text{original}}$\\
+  where by definition of ESEQ, $s$ is executed before $e$
+
+  use equivalence identities for transformations of nodes (TODO)
+
+  use of commutativity simplifies transformations but hard to know if it's applicable to an expression in general
+
+  \subsection{Trace construction}
+  Goal: generate a set of traces that cover the entire program\\
+
+  Sample algo:
+  \begin{itemize}
+  \item grow a trace from a selected basic block: when encountering a cjump/jump (at the end of the block), continue trace by selecting a possible path and adding the selected block to the current trace
+  \item delete jump instruction afterwards
+  \item trace stops growing when successors to current frontier block are already covered by existing trace(s)
+  \end{itemize}
+
+  \subsection{General Procedure}
+  \begin{enumerate}
+  \item linearize: list of statements (T\_stm) $\rightarrow$ canonical trees (T\_stmList): apply rewrite rules: ESEQs removed, CALLs restricted to be under nodes of certain types
+  \item group into basic blocks: canonical trees $\rightarrow$ basic blocks (these now can be reordered arbitrarily)
+  \item trace schedule: basic blocks $\rightarrow$ T\_stmList: a set of traces covering entire program
+  \end{enumerate}
+
+  \subsection{Rewrite Rules}
+
+  \subsubsection{Reorder}
+  \verb%reorder([expr]) -> stm%
+
+  Goal
+  \begin{itemize}
+  \item pull ESEQs out of given list of expressions
+  \item combine statement parts of ESEQs together into 1 sequence and return as statement
+  \item rewire nodes with ESEQ child node to point to new expression as child instead
+  \end{itemize}
+
+  Delegate to \verb%do_exp(..)%, \verb%do_stm(..)%
+      
+  \subsubsection{Expr Rewrite}
+  \verb%do_exp(expr) -> ESEQ(stm',expr')%
+
+  Goal: pull out statements out of given expression and return ESEQ(s,e) where it is equivalent to original expression
+
+  Recursively call reorder when necessary depending on expression type.
+
+  \subsubsection{Statement Rewrite}
+  \verb%do_stm(stm) -> stm%
+
+  Goal: pull out ESEQs out of a statement and reorder to return ordered statement
+
+  Recursively call reorder when necessary to apply rewrite rule on sub-expressions of the statement.
+
+  \subsubsection{Linearize}
+  \verb%linearize(stm) -> [stm]%
+
+  Goal
+  \begin{itemize}
+  \item flatten parts of the tree previously processed by rewrite rules where all SEQ nodes are at the top
+  \item return a list of statements where SEQs are eliminated
+  \end{itemize}
+
+  Apply \verb%linearize(do_stm(..))% on body of target function to get back linearized statements.
+
+  Pass the resulting list of statements to constructor of basic blocks.
+
+  \subsection{Basic Block Properties}
+
+  Construct basic block(s) from list of linearized statements with the following invariants by adding labels, modifying jumps, starting new blocks as necessary.
+
+  \begin{itemize}
+  \item a label is at the start of the block
+  \item a cjump/jump is at the end of the block
+  \item no other jumps exist in any other part of the block
+  \end{itemize}
+
+  \subsection{Trace Schedule}
+  
+  Goal
+  \begin{itemize}
+  \item reduce amount of jump overhead by combining basic blocks
+  \item placement of false label to fall through for conditional jump
+  \end{itemize}
+
+  Strategies
+  \begin{itemize}
+    \item Reorder blocks so unconditional jumps are followed immediately by destination blocks and these blocks can be added to a same trace, so that jumps can be eliminated later.
+    \item Reorder blocks so condition jumps are followed immediately by blocks with false label, invert conditional logic if necessary. This allows better mapping to branching instruction on most hardware where false label jumps can be eliminated later.
+  \end{itemize}
+
+  Sample iterative algo.: grow current trace with a work list of basic blocks and looking at uncovered successor blocks of current block.
+    
+  \vfill\null
+  \columnbreak
+
+  \section{Instruction Selection}
+
+  Goal: cover the IR tree with a minimal set of instruction patterns that are non-overlapping, typically using an idealized cost model for selection
+  
+  \subsection{Sample Tiling Selection Algos}
+  \subsubsection{Maximal Munch}
+  \begin{itemize}
+  \item Greedy, locally optimal
+  \item Top down growth of tiles starting from the root
+  \item sample strategy: select a tile of the largest size that is feasible and rooted at the current node (looking at node type)
+  \item if there exists a tile for every node type of the tree, then algo will not get stuck
+  \item process sub-expressions and statements recursively: \verb%munch_exp(..)%, \verb%munch_stm(..)%
+  \end{itemize}
+
+  \subsubsection{Dynamic Programming}
+
+  \begin{itemize}
+  \item Globally optimum
+  \item bottom up traversal and compute minimal accumulated cost at current node: cost of a feasible tile rooted at current node plus subtree costs of its child tiles
+  \item 2nd pass to emit instructions based on selected tiles in post order (emit instr for rooted nodes of child tiles, emit instr for the tile rooted at current node)
+  \end{itemize}
+
+  \subsection{Register Allocation Pass}
+  schedule register allocation pass after instruction selection means instruction selection needs to work without exact registers $\implies$ use an abstraction for instructions without register (Abstract Assembly Language Instructions), which is independent of target machine assembly language.
+
+  \subsection{Abstract Assembly Language Instructions}
+\begin{verbatim}
+  enum AsInstr {
+    Oper(
+      asm: string,
+      dst: [NameTemp],
+      src: [NameTemp],
+      jumps: [NameLabel]),
+    Label(
+      asm: string,
+      label: NameLabel),
+    Move(
+      asm: string,
+      dst: [NameTemp],
+      src: [NameTemp]),
+  }
+\end{verbatim}
+
+  \begin{itemize}
+    \item \verb%[NameTemp]%: list of registers assigned by register allocator
+    \item Oprations that fall through $\implies$ \verb%jump% is empty
+    \item \verb%Label%: point in program that \verb%jump%s can go
+    \item \verb%asm% instruction does not know about register assignments; use generic enumerations \verb%s<n>, d<n>, j<n>%, eg: \verb% LOAD d0 <- M[s0 + 0]%
+    \item \verb%asm% instruction may have registers that are both used for src and dst
+    \item After choosing temporaries by instruction selector: \verb% LOAD d0 <- M[s0 + 0]; dst:[t909], src: [t92]%
+    \item After register allocation, sample asm:\\
+      \verb%LOAD r2 <- M[r12+0]%
+  \end{itemize}
+    
+  Use of \verb%AsInstr% during IR tiling selection phase:
+  \begin{itemize}
+  \item \verb%munch_exp(..), munch_stm(..)% to emit instructions (accumulate instructions into a sequence)
+  \item \verb%munch_exp(..)% returns temporary of the expression result
+  \item sample \verb%munch_exp%:
+\begin{verbatim}
+  fn munch_exp(e) {
+    match e {
+      MEM(BINOP(PLUS, e1, CONST(i))) => {
+        let r: NameTemp = NameTemp::new();
+        emit(AsOper(
+          asm=format("LOAD d0 <- M[s0 + {}]", i),
+          dest=[r],
+          src=munch_exp(e1):[],
+          jumps=[]));
+        return r;
+      },
+      CONST(i) => {
+        let r: NameTemp = NameTemp::new();
+        emit(AsOper(
+          asm=format("ADD d0 <- r0 + {}", i),
+          dest=[r],
+          src=[],
+          jumps=[]));
+        return r;
+      },
+      ..
+    }
+  } 
+\end{verbatim}
+    note special \verb%r0% register for zero value
+  \item sample \verb%munch_stm%:
+\begin{verbatim}
+  fn munch_stm(s) {
+    match s {
+      MOVE(TEMP(i), e2) => {
+        emit(AsMove(
+          asm="ADD d0 <- s0 + r0",
+          dest=[i],
+          src=munch_exp(e2):[]));
+      },
+      MOVE(MEM(CONST(i)), e2) => {
+        emit(AsOper(
+          asm=format("STORE M[r0+{}] <- s0",i),
+          dest=[],
+          src=munch_exp(e2):[],
+          jumps=[]));
+      },
+      ..
+    }
+  } 
+\end{verbatim}
+  \end{itemize}
+  
+  \subsubsection{NameMap utility}
+  new() $\rightarrow$ NameMap\\
+  query(NameMap, NameTemp) $\rightarrow$ string\\
+  update(NameMap, NameTemp, string)\\
+  layer(over: NameMap, under: NameMap) $\rightarrow$ NameMap
+
+  Use cases for NameMap:\\
+  register allocator: temporary $\rightarrow$ register name\\
+  frame module: preallocated register $\rightarrow$ register name\\
+  debugging: temporary $\rightarrow$ stringified name
+
+  \subsubsection{Procedure calls}
+  \begin{itemize}
+  \item
+\begin{verbatim}
+  EXP(CALL(e, args)) => {
+    let r: NameTemp = munch_exp(e);
+    let l: [NameTemp] = munch_args(args);
+    emit(AsOper(
+      asm="CALL s0",
+      dest=calldefs, //mutated registers from call
+      src=r:l,
+      jumps=[]));
+  }
+\end{verbatim}
+    
+  \item  Use of utility function \verb%munch_args(..) -> [NameTemp]% to generate code to move all arguments to correct positions in registers and/or memory. Returned temporaries pass in as sources to the instruction (may not be explicitly written in assembly language) in order for liveness analysis to work correctly.
+  \item Call may side-effect registers (caller-save, return-address, return-value) $\implies$ list involved registers as destinations in order for later analysis to know they get affected.
+  \end{itemize}
+
+  entry point, passing rewritten/reordered statements (of a function body) that are processed by earlier phases:
+\begin{verbatim}
+  fn codegen(stm_list: [T_stm]) -> [AsInstr] {
+    for s in stm_list {
+      munch_stm(s);
+    }
+    INSTR_LIST
+  }
+  fn emit(instr: AsInstr) -> () { 
+    INSTR_LIST = INSTR_LIST ++ (instr: [])
+  }
+\end{verbatim}  
+
+  \vfill\null
+  \columnbreak
+
+  \section{Liveness Analysis}
+
+  \subsection{Definitions}
+
+  $succ[n]=\{x:\text{n has an arrow to x}\}$ (nodes connected by outgoing edges)\\
+  $pred[n]=\{x:\text{x has an arrow to n}\}$ (nodes connected by incoming edges)
+
+  assignment to variable/temporary defines that variable:\\
+  $def[n]=\{v:\text{node n defines variable v}\}$
+
+  variable on right hand side of assignment uses the variable:\\
+  $use[n]=\{v: \text{node n uses variable v}\}$
+  
+  $def(var)=\{n: \text{node n defines variable var}\}$
+
+  $use(var)=\{n: \text{node n uses variable var}\}$
+
+  liveness: variable is live on an edge if there exists a directed path from the edge to use of that variable that does not go through a def
+
+  live-in ($in[n]$): variable is live on $\geq 1$ in-edge(s) of that node
+
+  live-out ($out[n]$): variable is live on $\geq1$ out-edge(s) of that node
+
+  \subsection{Dataflow Equations for Solving Liveness Range}
+  
+  $in[n]=use[n] \cup (out[n] \setminus def[n])$\\
+  $out[n]=\cup_{s\in succ[n]} in[s]$
+
+  Solve via:
+  \begin{itemize}
+  \item fixed point iteration, or
+  \item per variable search backwards (starting at use and ending on a definition of the variable)
+  \end{itemize}
+  
+  Liveness flows backwards, so perform iteration of dataflow equations in reverse order of control flow graph).
+
+  Merging of nodes to basic blocks $\implies$ allows faster perfomance due to reduced number of graph elements.
+
+  \subsection{Complexity}
+  Worst case: outer loop of fixed point iteration $O(N^2)$ due to bounding of in-set/out-set to $N$ elements.\\
+  Set operation between nodes: $O(N^2)$. Then overall worst case is $O(N^4)$\\
+  Reordering of nodes $\implies$ outer loop usually needs 2-3 iterations.\\
+  Live-sets sparse $\implies O(N)$ to $O(N^2)$ in most cases.
+
+  \subsection{Solutions to Dataflow Equations}
+  may be approximations:\\
+  live variables present in approximation\\
+  presence of variable in approximation that may not need to be live
+
+  \subsection{Static vs. Dynamic Liveness}
+  Special case algo. can improve liveness analysis in some cases
+
+  Dynamic liveness:\\
+  variable $a$ is dynamically live at node $n$ if some execution of the program goes from $n$ to use of $a$ without going through a definition of $a$.
+
+  Static liveness:\\
+  variable $a$ is statically live at node $n$ if there exists a path of control flow edge from $n$ to some use of $a$ that does not go through a definition of $a$.
+
+  dynamically live $\implies$ statically live
+
+  In general, optimize using static liveness for approximation
+
+  \subsection{Liveness for Register Allocation}
+  overlapping live ranges of temporaries $\implies$ use separate register at that point of execution
+
+  interference graph: expressing non-overlapping live range constraints between pairs of variables using edges
+
+  \subsection{Move Instruction Optimization}
+  
+  no need to create an interference edge for \verb%t <- s%
+  
+  however if a later non-\verb%Move% definition of \verb%t% happens, interference still needs to be accounted at that point
+
+  algo:
+  \begin{itemize}
+  \item definition of \verb%a% at non-move instruction $\implies$: add interference edge between sources and destination (\verb%a%) variables.\\
+    interference edges: $\{(s, a)\}, \forall s \in \text{sources}$
+  \item definition of \verb%a% at move instruction \verb%a <- c%: if variable \verb%b% is live-out and \verb%b% $\neq$ \verb%c% $\implies$ add interference edge $(a, b)$; eg: \verb%b% will be used later
+  \end{itemize}
+  
+  \subsection{Control Flow Graph Module}
+  Construct a control flow graph. Use this later to perform liveness analysis of variables and produce an interference graph.
+
+  Use a module, FlowGraph, to manage nodes:
+  \begin{itemize}
+  \item node represents instruction/ basic block
+  \item instruction \verb%m% can be followed by instruction \verb%n% $\implies$ edge $(m, n)$ exists in graph
+  \item internal data of FlowGraph hidden from outside behind an interface
+  \item let nodes represent abstract instructions; take in a list of instructions and return flow graph where info of node is abstract assembly instruction
+  \item jump fields of instruction used in creating control flow edges
+  \item source and destination fields of instructions used to obtain use and def information
+  \end{itemize}
+
+  Info associated with each node:\\
+  \verb%FlowGraph::def(n) -> {t: temporary t defined at node n}%\\
+  \verb%FlowGraph::use(n) -> {t: temporary t used at node n}%\\
+  \verb%FlowGraph::isMoveInstruction(n) -> bool%\\
+  
+  Separate association of node to extra info possible by an external mapping function.  
+
+  \subsection{Liveness Module}
+  Takes in a flow graph and produces:
+  \begin{itemize}
+  \item interference graph
+  \item list of node(variable)-pairs representing Move instructions that may be elided in later phases of compilation
+  \end{itemize}
+
+  Interference graph node \verb%n%:\\
+  \verb%Live::temp(n) = temporary variable represented by node n% ($n \mapsto NameTemp$)
+
+  Maintain data structure for remembering what is live at exit of each flow graph node (live-out)
+
+  Calculation of \verb%live_map% (set of live temporaries at current location) used to construct interference graph:\\
+  ($\forall$ flow node $n$)($\forall d \in def[n]$)($\forall i$) add interference $(d, t_i)$\\
+  where:\\
+  $\{t_1, t_2, ..\} \equiv$ temporaries in \verb%live_map%\\
+  $def[n]\equiv$ newly defined temporaries at node $n$
+
+  \subsubsection{Zero Length Live Range}
+  Definition may include side effects (eg: write to regsiter, even if variable is not used after)
+  
+  May interfere with any overlapping live ranges.
+
+  Therefore 0-length live range needs to be taken into account.
+  
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Register Allocation}
+
+  Goal: colour nodes of interference graph:
+  \begin{itemize}
+  \item no 2 adjacent ndoes are coloured the same
+  \item minimize number of colours used
+  \item a colour corresponds to a specific register
+  \end{itemize}
+
+  General phases:\\
+  1. define an order of nodes\\
+  2. colour nodes in defined order while preserving colour invariant
+
+  \subsection{Common Algorithm}
+  Phases: build, simplify, coalesce, freeze, potential spill, select
+
+  \begin{tikzpicture}
+    \node(build) {build};
+    \node(simplify) [below = 0.5cm of mem]{simplify};
+    \node(coalesce) [below = 0.5cm of simplify] {coalesce};
+    \node(freeze) [below = 0.5cm of coalesce] {freeze};
+    \node(spill) [below = 0.5cm of freeze] {spill};
+    \node(select) [below = 0.5cm of spill] {select};
+    \node(end) [below = 0.5cm of select] {end};
+    
+    \draw [->] (build) -- node[left, pos=0.2] {} (simplify) ;
+    \draw [->] (simplify) -- node[left, pos=0.2] {} (coalesce) ;
+    \draw [->] (coalesce) -- node[left, pos=0.2] {} (freeze) ;
+    \draw [->] (freeze) -- node[left, pos=0.2] {} (spill) ;
+    \draw [->] (spill) -- node[left, pos=0.2] {} (select) ;
+    \draw [->] (select) -- node[left, pos=0.2] {} (end) ;
+
+    \path [line] (coalesce) --++ (1cm,0cm) |- (simplify);
+    \path [line] (freeze) --++ (1cm,0cm) |- (simplify);
+    \path [line] (spill) --++ (1cm,0cm) |- (simplify);
+    \path [line] (select) --++ (2cm,0cm) |- (build);
+  \end{tikzpicture}
+
+  \subsubsection{Build}
+  Construct interference graph for register resident variables (create edges for temporaries that have overlapping live ranges). Mark node as move / non-move.
+
+  \subsubsection{Simplify}
+  Put nodes in some stack order.
+
+  For non-move nodes, if there exists a node from graph that has $<k$ (where $k$ is the number of available registers) degree $\implies$ add it to stack (and remove from graph), otherwise go to potential spill phase.
+  
+  \subsubsection{Coalesce}
+  Tentatively merge nodes (assigned same colour) based on some safe algoithm (eg: Briggs / George), and go to simplify step. Repeat until all nodes remain have $\geq k$ degree or are only move-related nodes.
+
+  Potentially coalesce move-related nodes and thus delete move instructions. If no edge exists between src and dest. of move instruction $\implies$ edges are coalesced when src and dest. nodes merge.
+
+  Coalescing makes nodes with more edges in general, safe strategies used (if original graph is colourable, and if applying safe strategy for coalescing is successful then the result is also colourable).
+
+  Briggs:\\
+  Nodes $a$ and $b$ merged has $<k$ neighbours of significant degree ($\geq k$ edges) $\implies$ can be merged
+
+  George:\\
+  all neighbours of $a$ either interferes with $b$ or $<k$ degree $\implies$ can be merged
+
+  interleaving of simplify and coalescing phases is effective at removing redundant move instructions while not introducing spills.
+
+  \subsubsection{Freeze}
+  At this stage, all nodes are $\geq k$ degree or move-related.
+  
+  If possible, select move node of low degree and mark it as non-move (give up coalescing), and go to simplify step.
+
+  \subsubsection{Potential Spill}
+  If there exists no $<k$ degree node, select a node (eg: of highest degree) to be potentially represented in memory instead of register (edges in graph removed) and push onto the stack, and go to simplify step. Repeat until no spill occurs (remaining nodes have $< k$ degree) and all nodes have been simplified and added to the stack. Optimistic colouring heuristic: select node with high degree to remove, continue process and hope that node will eventually be colourable after more removal.
+
+  \subsubsection{Select}
+  Pop all nodes from stack and try assigning colours.\\
+  Either assignment is successful, or if not assignable: rebuild the graph by inserting instructions to relocate variable to memory (actual spill occurs), discard coalesces found in this round, and go to build step.
+
+  If all assignments are succesful, then the algorithm ends successfully.
+
+  \subsection{Coalescing of Spilled Nodes}
+
+  \begin{itemize}
+  \item spill pairs are ususally never live simultaneously since number of memory locations aren't practically bounded
+  \item use liveness information to construct interference graph for spilled nodes
+  \item if there is a pair of non-interfering spilled nodes connected by move instruction, then coalesce them
+  \item use simplify and select to colour the graph; no spilling occurs here\\
+    simplify: picks lowest degree node\\
+    select: picks 1st available  colour (no limit on number of colours here due to plentiful memory addresses)
+  \item colours correspond to activation record locations of spilled variables
+  \item performed before generating spill instructions and interference graph of register-resident temporary (register allocation for remaining nodes) to avoid fetch-store sequences for coalesced moves of spilled nodes.
+  \end{itemize}
+
+  
+  \subsection{Precoloured Nodes}
+
+  These don't simplify (no freedom of assigning an arbitrary colour) and spill (can't spill to memory since these are specific to register)
+
+  Generated for certain calling conventions where particular temporaries are permanently bound to certain registers (eg: frame pointer, standard argument 1 register)
+
+  Ordinary temporaries may be assigned same colour as precoloured register as long as they don't interfere.
+  
+  Desirable: Keep live ranges of precoloured nodes short. Use move instructions to assign to fresh temporaries (these can be spilled) before moving it back to precoloured register when needed.\\
+  Eg: callee-save registers\\
+  May be coalesced and move eliminated back to original if there isn't register pressure.
+
+  \subsection{Optimization}
+  \begin{itemize}
+  \item variable not live across procedure call $\implies$ allocate to caller-save register to save extra instructions
+  \item variable live across procedure call $\implies$ keep in callee-save register
+  \item specialized allocation algo. on expression trees is efficient
+  \end{itemize}
+
+  \subsection{Kempe Graph Colouring}
+
+  heuristic for phase 1 of graph colouring (defining an order of nodes)
+  
+  Solve subproblem recursively until base case:
+  \begin{itemize}
+  \item there are $\leq k$ nodes remaining in graph $\implies$ graph is colourable, or
+  \item remove a node with $< k$ degree and push onto stack for later colour assignment
+  \end{itemize}
+  
+  \subsection{Algo}
+\begin{verbatim}
+fn reg_alloc(){
+  liveness_analysis();
+  build();
+  make_worklists();
+  while !all_worklists_empty() {
+    if !simplify_worklist.empty() { simplify(); }
+    if !move_worklist.empty() { coalesce(); }
+    if !freeze_worklist.empty() { freeze(); }
+    if !spill_worklist.empty() { select_spill(); }
+  }
+  assign_colours();
+  if !spilled_nodes.empty() {
+    rewrite_program(spilled_nodes);
+    reg_alloc();
+  }
+}
+\end{verbatim}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{GC}
+
+  goal: minimize number of reachable record that are not live
+
+  \subsection{Mark and Sweep}
+
+  traverse directed graph to mark all reachable nodes
+
+  unmarked nodes at end of sweep are garbage and can be reclaimed (via freelist)
+
+  reset marks of all nodes for next sweep
+
+  use of freed memory to use as stack vs. explicit stack (threading pointers in free nodes)
+
+  sweeping phase: put unmarked records into freelist (can use different freelists for different sized records)
+
+  issues: external vs. internal fragmentation
+
+  \subsection{Reference Counts}
+
+  record contains additional info on the nummber of pointers pointing to the record
+
+  increment number when pointer is stored to somewhere
+
+  decrement when pointer is removed from somewhere
+
+  when number is 0 $\implies$ put record into freelist; recursively decrement internal pointers in record during allocation (removal from freelist) for shother GC pauses
+
+  issues: cycles cannot be reclaimed (count never reaches 0) even if not reachable from program
+
+  incrementing ref counts is costly (due to instructions for putting things into freelists and possibly decrementing previous pointer records)
+
+  may be optimized by aggregating count updates via dataflow analysis
+
+  \subsection{Copying Collection}
+
+  division of space into to-space and from-space
+
+  compacting copying
+
+  easy to allocate
+
+  pointer forwarding: operations to copy a pointer in from-space to to-space correctly
+
+\begin{verbatim}
+fn forward(p) {
+  if p.is_in_from_space(){
+    if p.f1.is_in_to_space(){
+      return p.f1
+    }
+    for i in p.fields() {
+      next.field(i) = p.field(i);
+    }
+    p.f1 = next;
+    next = next + sizeof(p);
+    return p.f1
+  }
+  p //already in to-space
+}
+\end{verbatim}
+  
+  BFS copying GC (Cheney's algo.):
+  \begin{itemize}
+  \item scan and next cursors
+  \item 1st forwarding of root objects
+  \end{itemize}
+
+\begin{verbatim}
+scan = next = start_of_to_space
+for r in roots {
+  r = forward(r);
+}
+while scan < next {
+  record = get_record_at(scan);
+  for i of record.fields(){
+    scan.field(i) = forward(scan.field(i));
+  }
+  scan = scan + sizeof(record);
+}
+\end{verbatim}
+  
+  start of to-space $\leq$ scan $\leq$ next
+
+  area between scan and next may contain pointers not yet forwarded (still points to from-space)
+
+  issues: locality of reference
+
+  variant of algo: depth first copying
+
+  cost: $O(\text{number of nodes marked})$
+
+  ammortized cost (per word allocated): $\frac{c R}{\frac{H}{2} - R}$
+
+
+  \subsection{Generational Collection}
+
+  effective when old objects rarely update to point to new objects
+
+  objects promoted to older generation area after surviving a few collections
+
+  collect by: mark and sweep, or copying collection
+
+  in addition of root nodes, we keep a set of objects from older generations (remembered set) that have updated to point to objects in newer generations; these are scanned to update the pointers when objects in newer generations are copy collected to new to-space
+  \begin{itemize}
+  \item insert extra instructions when updating pointer field: put object into a set of updated objects that gets scanned for pointers back to $G_0$
+  \item runtime GC gets this set to run its algo.
+  \end{itemize}
+  
+  from-space $\equiv G_0$ arena hemisphere
+
+  roots $\equiv$ program variables + remembered set
+
+  to-space $\equiv G_0$ arena new hemisphere
+
+  pointers to older generations not changed
+
+  marking algo.: not mark objects in older generations
+
+  copying algo.: copies these verbatim without forwarding
+
+  after several collection of $G_0$, run collection for $G_0$ and $G_1$:
+  \begin{itemize}
+  \item remembered set for roots contained in $G_1, G_2, ..., G_k$
+  \item collect $G_0$ nad $G_1$ together
+  \end{itemize}
+
+  \subsection{Incremental Collection}
+  
+  interleave collection work in order to avoid long interruptions
+
+  types:
+  \begin{itemize}
+  \item incremental: collector operates only when mutator (program changing graph oof reachable data) requests it
+  \item concurrent: collector can operate between any instructions executed by mutator
+  \end{itemize}
+
+  classes of records:
+  \begin{itemize}
+  \item white: objects not yet visited by DFS/BFS
+  \item grey: objects that have been marked/copied, but childrens have not been examined
+  \item black: objects that have themselves and their children marked
+  \end{itemize}
+
+  generalization of mark-and-sweep and cpoying collection algo: tricolour marking algo.
+
+\begin{verbatim}
+while let Some(p) = grey_objects() {
+  for i in p.fields(){
+    if p.field(i).is_white() {
+      p.field(i).colour = grey
+    }
+  }
+  p.colour = black
+}
+\end{verbatim}
+
+  invariants that a mutator respects:
+  \begin{itemize}
+  \item no black object points to a while object
+  \item every grey object is on collector's stack/queue/data structure (grey-set)
+  \end{itemize}
+
+  incremental algo variants:
+  \begin{itemize}
+  \item Dijkstra, Lamport, et. al.
+  \item Steele
+  \item Boehm, Demers, Shenker
+  \item Baker
+  \item Appel, Ellis, Li
+  \end{itemize}
+
+  general types of implementation:
+  \begin{itemize}
+  \item write barrier algo: write/store by mutator checked to make sure invariant is maintained
+  \item read barrier algo: read/fetch instructions checked for invariant
+  \end{itemize}
+  these must synchronize with collector:
+  \begin{itemize}
+  \item using software implementations of barrier: explicit synchronization instructions (may be expensive)
+  \item use of virtual memory H/W (sync. implicit in a page fault (mutator faults on a page $\implies$ O/S ensures no other process has access to that page before processing the fault
+  \end{itemize}
+
+  \subsubsection{Baker's Algorithm}
+  example of an incremental copying collection algo.
+
+  TODO
+  
+  \subsection{Interface to the Compiler}
+  live analysis: derived pointer implicitly keeps its base pointer live so the GC algo. does not get confused by elimination of pointers in live analysis
+
+  use of inline expansion and merge ops from multiple allocations to save instruction related to allocation with GC
+
+  \subsubsection{GC Layout of Objects}
+  OO language contains class descriptors (compile time generation) in every object for dynamic lookup $\implies$ no additional per-object cost if these are also used for GC
+
+  Compiler needs to signal to GC collector every pointer containing temporary and local variable (in register or activation record)
+
+  set of live temporaries different at every point in the program $\implies$ more efficient to describe pointer map at points where new GC cycle can begin:
+  \begin{itemize}
+  \item calls to alloc function
+  \item each function call (since they can laso call alloc)
+  \end{itemize}
+  example impl.: map function return address to live pointer set: for all pointer live immediately after call, map tells their register/frame location
+
+  root finding:
+  \begin{itemize}
+  \item collector starts at top of the stack and scans downward frame by frame
+  \item in each frame, collector marks/forwards (if using copying collection) pointers in that frame (these pointers are obtained from address map to pointer entries)
+  \item callee-save registers with special handling:\\
+    function must describe which of its callee-save registers contain pointers at call to another function via additional info in pointer map so that the called function knows which callee-saved registers contain pointers
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Extensions with OOP}
+
+  Static methods: find method using ancestor chain.
+
+  Dynamic method: a list of method instances in class descriptor ( from ancestor classes in the case of single inheritence tree).
+
+  Method for field initialization for class objects.
+
+  Method instance lookup for multiple inheritance can use static analysis for packing:
+  \begin{itemize}
+  \item Compile time hashing of fields/methods to offsets/code addresses.
+  \item Graph colouring: add edge between fields that exist in its class and ancestor classes (these are the ones that cannot coexist). A colour corresponds to a slot. May end up with vacant slots due to colouring constraints.
+  \end{itemize}
+
+  \subsection{Compaction}
+  Pack fields and methods in class object instances; map uncompacted slots to compacted offsets in a separate descriptor which is shared between many class objects.
+
+  Field lookup: in class object instance, fetch descriptor pointer. Fetch field offset from descriptor, perform store/fetch on data at offset wrt. object.
+  Further perform static analysis to elide extraneous operations (eg: common expressions).
+
+  \subsection{Class Membership Test}
+  Use class descriptor info to compare against class type tags.
+  
+  Use linked list of base classes.
+
+  \subsection{Type Coercion}
+  \begin{itemize}
+  \item sub to base class coercion safe at compile time
+  \item base to sub class coercion requires runtime type check and exception support
+  \item static/runtime casts/tests usually needs language support
+  \item conditional test allows compiler to apply type narrowing/coercion and type propagation optimization on relevant code paths
+  \end{itemize}
+
+  \subsection{Private Members}
+  Type check phase enforces it.
+
+  Implemenation can simply use an indicator information for each member in symbol table. Uses of members require checking the indicator.
+
+  \subsection{Converting dynamic calls to methods to static method calls}
+  Less execution pipeline stalls due to runtime indirections.
+  
+  Determination:
+  \begin{itemize}
+  \item When method call is always with the same method instance, then replace dynamic call with static call
+  \item use subclass info, if no overrides for method call exist then use static call at call site
+  \item static dataflow analysis: type propagation from declaration/assignment to call sites may constrain the possible method instances at call sites
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Extensions with FP}
+
+  Flavours of FP:
+  \begin{itemize}
+  \item impure and higher order (function as argument / return value of function)
+  \item strict and pure
+  \item non-strict and pure
+  \end{itemize}
+
+  Techniques for saving/accessing non-local environment:
+  \begin{itemize}
+  \item lambda lifting
+  \item closure with code pointer and static link\\
+    Without nesting of functions: machine code address of function (and representation of function in some variable)\\
+    With nesting of functions: machine code pointer and access to non-local variable used by function (such as through static link)
+  \end{itemize}
+
+  \subsection{An impl of code pointer and non-local variable access via static link}
+  
+  Heap allocation for either:
+  \begin{itemize}
+  \item entire activation record of function
+  \item only variables that escape (used by inner functions); let stack frame's variable point to heap allocated escape variable record
+  \end{itemize}
+
+  Escape variable record:
+  \begin{itemize}
+  \item heap allocated record containing local variables that is needed by inner functions
+  \item static link to environment (escape variable record) provided by enclosing function
+  \end{itemize}
+  
+  Cleanup / recycle via garbage collector
+
+  Static Link:
+  \begin{itemize}
+  \item access free/non-local variables (eg: the environment)
+  \item passed in as an argument to function
+  \item stored in a record on the heap
+  \end{itemize}
+
+  Pointer to escape variable record:
+  \begin{itemize}
+  \item accessible in stack frame
+  \item not escape and therefore can be spilled
+  \end{itemize}
+
+  When allocating formal parameters and local variables:
+  \begin{itemize}
+  \item escape variables allocated to a record on heap
+  \item calculation of offsets uses escape variables record when walking the static link chain
+  \end{itemize}
+
+  \subsection{Pure FP Language}
+  
+  Immutability of variables allows equational reasoning:
+  \begin{itemize}
+  \item variable assignment only happens once
+  \item side effects disallowed
+  \end{itemize}
+
+  COW for producing new values
+  
+  GC recycles unreachable variables
+
+  Optimizations:
+  \begin{itemize}
+  \item control flow graph: more complex due to function variables that are not statically defined
+  \item equational reasoning (with immutable variables): can replace variable values with constraints once value propagation has been performed
+  \item inline expansion
+    \begin{itemize}
+    \item renaming of parameter/variable to avoid name clases
+    \item replacement of formal parameters and their occurences in function body by new and unique variables using let declarations
+    \item after inlining, unreferenced functions can be removed entirely
+    \end{itemize}
+  \item recursive function inlining: split function into 2 parts:
+    \begin{itemize}
+    \item prelude: callable from outside; calls loop header
+    \item loop header: callable from prelude and body of loop header
+    \end{itemize}
+    inlining applies to the prelude portion at call sites (prelude is expanded)
+  \item loop invariant arguments: arguments passed to recursive calls and function are invariant, then apply hoisting transformation:
+    \begin{itemize}
+    \item remove parameters from function
+    \item replace use of these parameters with original values from outer call site
+    \end{itemize}
+  \item cascading inlining: inlining applied multiple times: function calls within inlined code  may be inlined again
+  \item control code size from inlining: heuristic candidates:
+    \begin{itemize}
+    \item very frequently executed function
+    \item small ratio of body instruction to function call instruction
+    \item function is only called once
+    \end{itemize}
+  \item un-nesting let declarations: put declarations in a same scope:    
+\begin{verbatim}
+let dec1
+    dec2 in exp
+\end{verbatim}
+  \end{itemize}
+
+  \subsubsection{Closure Conversion}
+  Eliminate function's access to non-local variables by turning them into explicit formal parameter access. Then, there is no need to query non-local access via static links afterwards.
+
+  Rewrite:
+
+  \verb%f(a1, a2, ..., an) = B% at nesting depth \verb%d%, with:\\
+  escaping local variables and formal parameters \verb%x1, ..., xn%\\
+  non-escaping variables \verb%y1, ..., yn%
+
+  into:
+
+  \verb%f(a0, a1, ..., an) = let var r = { a0, x1, ..., xn } = B'% where:\\
+  \verb%a0% $\equiv$ explicit parameter for static link\\
+  \verb%r% $\equiv$ record with escaping variables and enclosing static link; \verb%r% becomes static link argument when calling inner functions (depth of $d+1$)
+
+  use of non-local variable (declared in depth of $<d$) in \verb%B% transformed into some access of offset using record's \verb%a0% in rewritten body \verb%B'%
+
+  \subsubsection{Tail Recursion}
+  Function called as the last thing in an enclosing expression and that expression is recursively the tail context up to the body of an outer function $\implies$ function is a tail call
+
+  Optimize: skip returning to current function and jump to outer nested function
+  \begin{itemize}
+  \item move params into argument registers
+  \item restore callee-save registers
+  \item pop stack frame of current/caller function
+  \item jump to callee
+  \end{itemize}
+
+  Static time escape analysis: closure records that do not outlive function that created them can be stack allocated instread of heap
+
+  Heap allocation / GC optimizations (todo: section 13.7)
+
+  \subsection{Lazy Evaluation}
+
+  $\beta$-substitution: \verb%f(x) = B% $\implies$ \verb%f(E) = B[x->E]%
+
+  Equivalent if both programs halt, otherwise use lazy evaluation
+
+  \subsubsection{Call-by-Name Evaluation}
+  compute expression only when result is needed
+  
+  \begin{itemize}
+  \item variable is a thunk (function that computes a value on demand):
+    eg: \verb%() -> int% instead of \verb%int%
+  \item variable creation: create a function value
+  \item variable use: function application  
+  \end{itemize}
+  
+  \subsubsection{Call-by-Need Evaluation}
+  \begin{itemize}
+  \item modification of call-by-name: evaluate a thunk only once
+  \item associate thunk with a cache (memo)
+  \item on 1st creation: memo slot is empty
+  \item on use of thunk: check memo slot first and only call thunk function when slot is empty
+  \item example impl: record of thunk function + memo slot
+  \end{itemize}
+
+  \subsubsection{Optimization}
+
+  Benefits of lazy language over strict functional and impure language during optimization:\\
+  Properties of being side-effect free and preservation of termination of the original program after transformation allows the following to be more easily implemented:
+  \begin{itemize}
+  \item dead code removal
+  \item invariant hoisting: relocate invariant computation out of loops
+  \item deforestation: removal of intermediate lists/trees/... from function return values
+  \item strictness analysis for optimizing thunk overhead
+    \begin{itemize}
+    \item goal: determine if it's safe to eval an argument before passing it to a function (eg: even if function never uses the argument and function halts then the argument is deemed not strict)
+    \item thunk at places when absolutely necessary
+    \item eval. now if it's certain variable need to be computed
+    \item definition of strictness:\\
+      \verb%f(x)% is strict $\equiv$\\
+      $(\forall a) a$ fails to terminate $\implies$ $f(a)$ fails to terminate\\
+      
+      \verb%f(x1, ..., xn)% is strict wrt. \verb%xi% $\equiv$\\
+      $(\forall a) a$ value for $xi$ parameter fails to terminate $\implies$ $f(..., a, ...)$ fails to terminate\\
+    \item if \verb%f% is strict wrt. \verb%x%, then x can be evaluated immediately and pass its result to \verb%f% instead of a thunk
+    \item approximation of strictness analysis: if strictness is indeterminate, then be conservative and take a sound approach: function argument must be assumed to be non-strict: $(\exists a) a$ fails to terminate $\wedge$ $f(a)$ terminates; use a thunk
+    \end{itemize}
+  \end{itemize}
+
+  \subsection{Continuation Based I/O}
+  \begin{itemize}
+  \item special return type for I/O to make it visible to the compiler for reasoning
+  \item rid of while and for loops, compound statements, assignment statements from language
+  \end{itemize}
+
+  TODO
+
+  \vfill\null
+  \columnbreak
+
+  \section{Polymorphic Types}
+
+  Types:
+  \begin{itemize}
+  \item parametric polymorphism: same algo for all types of argument
+  \item overloading / ad hoc polymorphism: different algo depending on type of argument
+  \end{itemize}
+
+  \subsection{Parametric Polymorphism}
+  
+  intermediate representation typed, even for implicit typed language
+
+  ability to run type checker after optimization passes to debug the compiler
+
+  \subsection{Case Study: Explicitly Typed Polymorphic Lang.}
+
+  \subsubsection{parametric type constructor}
+
+\begin{verbatim}
+type id tyvars = ty
+
+eg:
+
+type list <e> = { head: e, tail: list <e> }
+\end{verbatim}
+
+  where:
+
+  \verb%list% is a type constructor
+
+  \verb%list<T>% is a type
+
+  \verb%T% is a type argument to the type constructor
+
+  \verb%{ ... }% is an initializer
+
+  \subsubsection{function call with instantiation for calling polymorphic function}
+
+\begin{verbatim}
+type list< e > = { head: e, tail: list<e> }
+function append< e >(a: list<e>, b: list<e>): list<e>
+  = ...
+\end{verbatim}
+
+  \subsubsection{Polymorphic Type Checking}
+  
+  idea: replace $\beta$ with $t$ in a type expression
+
+  to avoid name clash when substituting, use $\alpha$-conversion before application
+
+  application: apply a type constructor to type arguments, eg:
+  \verb%App(Int, [])% $\iff$ \verb%Int<>%
+
+  arrow type constructor represent function:\\
+  $a \rightarrow b \iff$ \verb%App(Arrow, [a, b])%
+
+  \verb%Tyfun%$([\alpha_1, ..., \alpha_n], t) \iff$ type function / constructor\\
+  where:\\
+  $\alpha_i$'s: bound type variables for \verb%t%\\
+  \verb%t%: may use $\alpha_i$'s
+
+  use \verb%App% on \verb%Tyfun(..)% and provided type substitution variables to replace $\alpha_i$'s to get actual type of function
+
+  \verb%Poly(tyvarlist, ty)% may use types in \verb%tyvarlist%
+
+  \subsubsection{Substitution Rules}
+  
+\begin{align*}
+  & subst(Var(\alpha), \{ \beta_1 \rightarrow t_1, .., \beta_k \rightarrow t_k \})\\
+  & \ \ \ =
+   \begin{cases}
+     t_i, & \text{if } \alpha \equiv \beta_i\\
+     Var(\alpha), & \text{otherwise}\\
+   \end{cases}\\
+  & subst(nil, \sigma) = nil\\
+  & subst(App(Tyfun([\alpha_1, ..., \alpha_n], t), [u_1, ..., u_n]), \sigma)\\
+  & \ \ \ = subst(subst(t, \{\alpha_1 \rightarrow u_1, ..., \alpha_n \rightarrow u_n\}), \sigma)\\
+  & subst(App(tycon, [u_1, ..., u_n]), \sigma)\\
+  & \ \ \ = App(tycon, [subst(u_1, \sigma), ..., subst(u_n, \sigma)])\\
+  & subst(Poly([\alpha_1, ..., \alpha_n], u), \sigma)\\
+  & \ \ \ = Poly([\gamma_1, ..., \gamma_n], subst(u^\prime, \sigma))\\
+  & \ \ \ \text{where}:\\
+  & \ \ \ \gamma_1, ..., \gamma_n \text{ are new variables not occuring in }\sigma \text{ or in } u\\
+  & \ \ \ u^\prime = subst(u, \{\alpha_1 \rightarrow Var(\gamma_1), ..., \alpha_n \rightarrow Var(\gamma_n)\})\\
+  & \ \ \ \text{can avoid apply subst twice in Poly clauses by}\\
+  & \ \ \ \text{composing 2 substitutions}
+\end{align*}
+
+  \subsubsection{Structural Equivalence of Types}
+  
+  freely substitute definitions of types
+
+  eg:
+
+  \verb%type number = int%\\
+  \verb%number% $\rightarrow$ \verb%int%
+
+  \verb%type transformer<e> = e% $\rightarrow$ \verb%e%\\
+  \verb%transformer% $\rightarrow$ \verb%Tyfun([e], App(Arrow, [Var(e), Var(e)]))%
+
+
+  \subsubsection{Occurence Equivalence of Types}
+  generates new type per occurence of definition, eg: via via pointer comparison
+
+  distinction of declaration of record that might have exact same fields
+
+  \subsubsection{Checking Type Equivalence}
+
+  expand: to see internal structure of a type
+
+  often need to expand \verb%Tyfun% in \verb%App(Tyfun(..), ..)%, substituting actual parameters for formal parameters
+
+  for \verb%App(Unique(Tycon, z), ...)%, don't expand \verb%Tycon% but test the uniqueness mark \verb%z%
+
+  algo 16.5: Unify (check for quivalence of types), extend it to infer types for implicitly typed language; give error message if it fails
+
+  algo 16.6: Expand types for equivalence check or operations requiring info of internal structures
+
+  algo 16.7: type declarations and translation rules into internal representation of type module (via modification of environments)
+
+  algo 16.8 type checking rules for polymorphic language
+
+  \subsection{Type Inference for Implicitly Typed Languages}
+
+  types omitted except for polymorphic type declarations in record, etc.
+
+  Hindley-Milner type inference algo (algo. 16.10):
+  \begin{itemize}
+  \item conversion into explicitly typed program
+  \item introduce a meta-variable for an unknown type: $ty \rightarrow Meta(metavar)$
+    \begin{itemize}
+    \item used as placeholder for an unknown type that we need to infer
+    \item solve for as much meta-variables as possible
+    \end{itemize}
+  \item use unify to derive relationship between meta-variables
+  \item remaining undetermined meta type variables can be converted to variables bound by Poly types (polymorphic types)
+  \item generalization:
+    \begin{itemize}
+    \item free type variables allow different instantiations at use sites
+    \item type inference at declaration assignment, and not at later variable assignment
+    \end{itemize}
+  \item explicitly typed representation in intermediate language is popular:
+    \begin{itemize}
+    \item after type check, transform into functional intermediate form (canonicalization)
+    \item perform optimizations on typed IR
+    \end{itemize}
+  \end{itemize}
+
+  \subsection{Representation of Polymorphic Variables}
+
+  type/size of variable not known; instantiated differently at use sites, but we must prepare for instruction selection
+
+  possible solutions:
+  \begin{itemize}
+  \item expansion
+  \item boxing/tagging
+  \item coercions
+  \item type passing
+  \end{itemize}
+
+  \subsubsection{Expansion of Polymorphic Functions}
+  \begin{itemize}
+  \item inline expand until everything is monomorphic: substitute actual types at every use site
+  \item consider the case of recursion:
+    \begin{itemize}
+    \item call is the same form as the function $\implies$ use monomorphic function introduced in \verb%let%
+    \item recursive call has different actual type parameters (polymorphic recursion):\\
+      $\implies$ cause calls to have different types each time at different stages of recursion which cause code bloat\\
+      $\implies$ restrict its use via language design
+    \end{itemize}
+  \end{itemize}
+
+  \subsubsection{Fully Boxed Translation}
+  all values are of same size; each describe itself to GC
+
+  \begin{itemize}
+  \item use pointer (boxed value) for large data
+  \item record contains meta-info (eg: size of item) to GC, and pointer to the record is the boxed value
+  \end{itemize}
+
+  alternatively, use bit tagging for small data types (less than 1 word size), to elide cost of fetching and unboxing value as well as boxing value after computation
+
+  \subsubsection{Coercision Based Representation}
+
+  use boxing (known size, use of extra instructions for box/unbox when value is used) only in polymorphic (one representation for multiple different types) variables
+
+  use unboxed representations for values in monomorphic (known explicit types in each instantiation) variables $\implies$
+  \begin{itemize}
+  \item efficient in monomorphic parts of program
+  \item extra cost in polymorphic functions
+  \end{itemize}
+
+  conversion from unboxed to boxed values occur at call to a polymorphic function
+
+  wrap and unwrap instructions for different types of values that need boxing (table 16.12 for primitive types)
+
+  recursive wrapping (table 16.13)
+  \begin{itemize}
+  \item build from bottom up
+  \item arguments to a function need to be wrapped
+  \item function agumented to take in wrapped values; within it, unwraps arguments and applys unwrapped value to original function
+  \item result of the function is wrapped
+  \end{itemize}
+
+  for the case of a parameter being a polymorphic type variable (table 16.14): wrapping and unwrapping for different cases of actual vs. formal type:
+  
+  \begin{center}
+    \begin{tabular}{ | c | c | c |}
+      \hline
+      actual args at calsite & formal params & transformation \\
+      \hline
+      $y: \bullet$ & $\bullet$ & $y$\\
+      $y: \text{int}$ & $\bullet$ & $\text{wrap}_{\text{int}}(y)$\\
+      $y: (t_1, t_2)$ & $\bullet$ & $\text{wrap}_{(t_1,t_2)}(y)$\\
+      $y: (t_1, t_2)$ & $(t_1, \bullet)$ & $(y.1, \text{wrap}_{t_2}(y.2))$\\
+      $f: t_1 \rightarrow t_2$ & $\bullet$ & $\text{wrap}_{t_1 \rightarrow t_2}(f)$\\
+      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow t_2$ & $\text{let fun }f_w(a) = f(\text{unwrap}_{t_1}(a)) \text{ in }f_w \text{ end}$\\
+      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow \bullet$ & $\text{let fun }f_w(a) = \text{wrap}_{t_2}(f(\text{unwrap}_{t_1}(a))) \text{ in }f_w \text{ end}$\\
+      \hline 
+    \end{tabular}
+  \end{center}
+
+  polymorphic function returns result into a monomorphic context $\implies$ result must be unboxed/unwrapped
+
+  if result is fully polymorphic $\implies$ use fully recursive unwrapping/unboxing on the result
+
+  if result itself is (partially) polymorphic $\implies$ additional unwrapping steps must be applied for boxed elements before rebuilding the fully unboxed structure
+
+  performance advantage: depends on that instantiation of polymorphic variables, where extra coercion steps are inserted, does not occur often wrt. ordinary ones
+
+  \subsubsection{Parsing Types as Runtime Arguments}
+
+  idea:
+  \begin{itemize}
+  \item keep data in natural representation
+  \item pass info of actual type of formal parameter
+  \item do this at runtime
+  \end{itemize}
+
+  pass in type description as additional variable $\implies$ may need closure since it can be a free variable
+
+  runtime cost for constructing description of types
+
+  runtime cost for polymorphic function: treat variables differently depending on type parameter
+
+  descriptors of types can be also used for GC
+
+  enable typecase facility (runtime type checking / matching)
+  
+  \subsection{Overloading / Ad-hoc Polymorphism}
+
+  map \verb%f% to multiple/different implementations (add to bindings) when processing declarations
+
+  callsites of \verb%f% analyzed with types of actual parameters to determine which binding should be used, eg: select one that is the most specific
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Analysis: Dataflow}
+
+  transformations using dataflow analysis:
+  \begin{itemize}
+  \item common subexpression elimination: use reaching expression / available expression
+  \item constant propagation: use reaching definition
+  \item copy propagation
+  \item dead code elimination: use liveness
+  \item constant folding
+  \item register allocation
+  \end{itemize}
+
+  note: one optimization may enable cascade of other transforms
+
+  use a general dataflow analyzer and notify analyzer when an optimizer (out of multiple optimizers) changes program
+
+  intra procedural optimization: spans all basic blocks within a function
+
+  use a simplified tree language:
+  \begin{itemize}
+  \item each Exp has only a sinle MEM or BINOP node
+  \item MOVE with MEM node only has TEMP/CONST on rhs and TEMP/CONST under MEM
+  \end{itemize}
+
+  quadruple representation: \verb%(a,b,c, op)% $\iff$ \verb%a% $\leftarrow$ \verb%b op c%
+
+  translate trees to quadruples in 1 pass
+
+  intraprocedural optimizations:
+  \begin{itemize}
+
+  \item take quadruple from canon. phase
+  \item transofrm them into a new set of quadruples
+  \item modify quadruples
+  \item feed result into instruction selection phase (maybe necessarty to turn them back into nested expression)
+  \end{itemize}
+
+  make control flow graph of quadruples: a directed edge from each node (eg: statement) to its successors (nodes that can immediately execute after it)
+
+  various dataflow analysis on CFG of quadruples: reaching definition,  available expression
+
+  \subsection{Reaching Definition}
+
+  forward dataflow problem
+
+  an expression in node s of flow graph, $t \leftarrow$ \verb%x op y%, reaches node n if there is a path from s to n that does not go through any assignment to x or y or \verb%x op y%.
+
+  practically can be implemented via backward search from node n and stop when \verb%x op y% is found
+
+  ambiguous definition of a variable: a statement that not assign value to the variable
+  unambiguous definition: a statement that unconditionally modify a temporary: \verb%x% $\leftarrow$ \verb%a op b% or \verb%x%$\leftarrow$ \verb%M[a]%
+
+  assume analysis on only unambiguous definitions
+
+  express reaching definition calculation as the solution of dataflow equations
+
+  label each MOVE statement with a definition-ID
+
+  generation of definition of variable \verb%t% by a statement \verb%s%:
+  
+  \verb%gen[s]% = \verb%def-ID d: t% $\leftarrow$ \verb%x op y%
+  
+  any generation of definition for a variable kills all other definitions of that variable
+
+  $kill[n] = \{d: d \text{ is a definition of t that gets killed by statement n}\}$
+
+  \verb%defs(t)% $\equiv$ set of all definitions (def-IDs) of temporary \verb%t%
+
+  sets of definition that reach beginnning/end of each node n:
+  \begin{align*}
+    in[n] & = \cup_{p \in pred[n]} out[p]\\
+    out[n] & = gen[n] \cup (in[n] \setminus kill[n])\\
+    gen[s] &= \{d\}\\
+    kill[s] &= defs(t) \setminus \{d\}\\
+    d: & t \leftarrow \text{b op c}, or\\
+    d: & t \leftarrow M[b]
+  \end{align*}
+
+  solvable via dixed point iteration:
+  \begin{itemize}
+  \item initialize \verb%in[n]%, \verb%out[n]% to empty sets for all nodes
+  \item iterate until \verb%in[n]%, \verb%out[n]% do not change for all nodes
+  \end{itemize}
+
+  use this info for optimizations, eg: constant propagation
+
+  \subsection{Available Expression}
+
+  forward dataflow problem
+
+  expression is available at node n $\iff$ on every path from entry node of the graph to node n, expression is computed $\geq 1$ times(s), and no other definitions of involved variables in the expression exist since the most recent occurence of the expression on that path
+
+  generation at statement \verb%s: t = b op c%\\
+  $gen[s] = \{ b\ op\ c \} \setminus kill[s]$\\
+  where $kill[s]$ is any expression containing \verb%t%
+
+  store instruction, $M[a] \leftarrow b$, might modify any memory location $\implies$ kills all fetch expression $(\forall x) M[x]$
+
+  in/out set equation for node n via dixed point iteration:
+  \begin{align*}
+    in[n] &= \cap_{p \in pred[n]} out[p]\\
+    out[n] &= gen[n] \cup (in[n] \setminus kill[n])
+  \end{align*}
+
+  initialization:
+  \begin{itemize}
+  \item in set of start node empty
+  \item all other sets to full (set of all expressions)
+  \end{itemize}
+
+  \subsection{Liveness Analysis Expressed in Terms of Gen and Kill Sets}
+  \begin{align*}
+    in[n] &= gen[n] \cup (out[n] \setminus kill[n])\\
+    out[n] &= \cup_{s \in succ[n]} in[s]
+  \end{align*}
+
+  backward flow problem
+
+  any use of variable ($.. \leftarrow var$) generates liveness
+
+  any definition ($var \leftarrow ..$) kills liveness
+
+  ordering of nodes matters in computation efficiency in the fixed point approach (eg: quasi-sorted worklist reduces number of iterations)
+
+  use-def chains: \verb% use% $\mapsto$ \verb%{definition that reaches use}%
+  \begin{itemize}
+  \item for each use of variable x, keep a list of definitions of x reaching the use $\implies$ allow efficient optimization algo. implementation that uses results of dataflow anlysis
+  \item generalization is SSA form
+  \end{itemize}
+
+  def-use chains: \verb% definition% $\mapsto$ \verb%{possible use of definition}%
+  \begin{itemize}
+  \item another way to represent results of liveness anlysis
+  \item for each definition, keep a list of all possible uses of that definition
+  \end{itemize}
+
+  worklist algo:
+  \begin{itemize}
+  \item detect change in a node during solving $\implies$ neighbours of that affected node are put into the worklist for future processing
+  \item select an item from worklist using some priority (eg: ordering) and repeat processing until worklist is empty
+  \end{itemize}
+
+  incremental dataflow analysis:
+  \begin{itemize}
+  \item cascading effects
+  \item cycles of dataflow analysis and optimiaztion passes $\implies$ may need many cycles
+  \item use bookkeeping of info. so a change allows efficient updates to livesness info.
+  \end{itemize}
+
+  \subsection{Alias Analysis}
+  possibly use type info to annotate memory accesses (creation/address of a variable is taken) by creating an alias class for each of the following:
+  \begin{itemize}
+  \item every frame lcoation created
+  \item every record field of every record type
+  \item every array type
+  \end{itemize}
+
+  analyze it during semantic analysis phase; later phaes lose this info about types
+
+  heuristic:
+
+  \verb%MEM_i[x], MEM_j[y]%, where $i,j$ are types (alias classes) of MEM nodes
+  
+  $i=j \implies MEM_i[x]$ may alias $MEM_j[y]$
+
+  pointer/reference can point o different alias classes depnding on conditional context
+  
+  associate MEM node with a set of alias classes
+
+  merging of control flow branches $\implies$ require merging of alias class sets from the branches
+
+  use of \verb%(t,d,k)% tuple to encode set of alias class of all instances of kth field of a record at location \verb%d%, assignment to variable \verb%t%
+
+  flow analysis equations:
+  \begin{align*}
+    in[n] &= \cup_{p \in pred[n]} out[p]\\
+    out[n] &= trans_n(in[n])
+  \end{align*}
+  where:
+  
+  $in[s_0] = A_0$, $s_0 \equiv$ start node
+
+  transfer function(in set of alias classes) $\mapsto$ out set of alias classes
+
+  $(\exists d,k) (p,d,k) \in in[s] \wedge (q,d,k) \in in[s] \implies$ p may alias q at statement s
+
+  using may alias relation: treat  each alias class as a variable in dataflow analysis
+
+  eg:
+
+  statement: $M[a] \leftarrow b$
+  
+  $gen[s]: \{\}$
+
+  $kill[s]: \{M[x] : \text{a may alias x at s}\}$
+
+  alias analysis in pure functional language:
+  \begin{itemize}
+  \item alias analysis not needed since there exists only 1 definition per variable
+  \item pointers cannot mutate data
+  \item immutable variable $\implies$ cannot be killed
+  \item easier to optimize: constant propagation and loop invariant detection easy to see
+  \item easier to debug 
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Analysis: Loops}
+
+  reducible flow graph: any cycle of nodes has an unique header node; efficient to analyze
+
+  loop S:
+  \begin{itemize}
+  \item 1 header node, h
+  \item all nodes in S $\rightarrow$ h
+  \item h $\rightarrow$ all nodes in S
+  \item all edges into S from external nodes go through h
+  \end{itemize}
+
+  finding loops in graph: use dominators:
+  \begin{itemize}
+  \item $D[n] = \{ n \} \cup (\cap_{p \in pred[n]} D[p])$
+  \item equation solvable by fixed point iteration
+  \item initialize $(\forall n \neq S_0) D[n] = \{x: x \in S\}$
+  \end{itemize}
+
+  a dominates b $\iff$ all paths from start node $s_0$ to b go through a
+
+  $dom(x) \equiv \{y: y\text{ dominates x}\}$
+
+  a idom b $\iff$ $(\forall x)$ x dominates b $\implies$ x dominates a
+
+  $(\forall x \neq S_0) (\exists i) i = idom(x) \iff$\\
+  $i \neq x \wedge \text{ i dominates x } \wedge \neg (\text{i dominates all other dominators of x})$
+
+  idom is unique for every node except the start node (empty in that case)
+  
+  existence of an edge from node n to node h such that h dominates n $\implies$ there is a subgraph that is a loop
+
+  a node can be header of  $\geq 1$ natural loop(s)
+
+  a region $\equiv \{ x: \text{h dominates x}\}$ where one header node dominates all nodes in the region
+  
+  natural loop: a region where there are edge(s) that all nodes can transit through back to the header node
+
+  property of natural loop: 2 natural loops are either disjoint or nested
+  
+  proper nested loop:
+  \begin{itemize}
+  \item loops A, B
+  \item a is header of A
+  \item b is header of B
+  \item $a \neq b$
+  \item $b \in A \implies$ B is a proper subset of A and B is a nested loop in A
+  \end{itemize}
+  
+  loop nest tree:
+  \begin{itemize}
+  \item tree of loop headers (merge if necessary) such that $h_1$ is above $h_2$ if $h_2$ is in loop of $h_1$
+  \item leaves of the tree are innermost loops
+  \item nodes not in any loop put in a pseudo loop, corresponding to the entire procedure body, sitting at the root of the loop nest
+  \end{itemize}
+
+  loop preheader:
+  \begin{itemize}
+  \item insert new node before loop header as a location for other optimizations (such as hoisting variables out of loop)
+  \item all edges from nodes outside loop redirected to the new node
+  \item add edge from new node to loop header node
+  \item unique predecessor node of the header node
+  \end{itemize}
+
+  loop postbody: 1 unique node that connect to header node via back edge
+
+  loop invariant computations:
+  \begin{itemize}
+  \item constant value wrt. loop iteration $\implies$ hoist computation outside of the loop
+  \item definition, d: $\leftarrow$ $a_1$ op $a_2$, is loop invariant in loop L if:
+    \begin{itemize}
+    \item $(\forall i) a_i$ is a constant, or
+    \item $a_i$'s definitions that reach d are outside of the loop, or
+    \item only 1 definition of $a_i$ reaches d and the definition is loop-invariant
+    \end{itemize}
+  \item can use iterative algo. to find  loop invariant definitions satisfying the above conditions
+  \end{itemize}
+
+  hoisting (after determining a definition is loop-invariant): transforms with valid result when hoisting an assignment, d: t $\leftarrow$ a op b, in a loop to the end of a preheader:
+  \begin{itemize}
+  \item d dominates all loop exits where t is live-out, and
+  \item only 1 definition of t in the loop exists, and
+  \item t is not live-out of the loop preheader (t is not live-in into the loop)
+  \end{itemize}
+
+  may need to transform while loop to a do while loop to satisfy constraint 1: hoist 1st iteration out and add guard to it; reorder conditional jump in the loop to the end exit node
+
+  induction variable analysis in loops:
+  \begin{itemize}
+  \item triplet of (ind var, offset, stride/step size):\\ $(i, a, b) \equiv a + ib$, where a and b are loop-invariant
+  \item basic linear induction variable $\iff$ induction variable changes by same amount every iteration
+  \item derived induction variable: uses basic induction variable via affine expression and can be expressed by triplet
+  \item detection of basic induction variable i: definitions of i in loop are only of the form $i\leftarrow i+c$ or $i\leftarrow i-c$ where $c$ is loop-invariant
+  \end{itemize}
+  
+  useless variable elimination: dead at all exits from loop and only use is in a definition of itself $\implies$ all definitions of this variable can be removed
+
+  rewriting comparisons (for almost useless variable)
+  \begin{itemize}
+  \item replace expression in comparison using coordinated induction variable and loop invariant expression $\implies$ makes almost useless variable useless
+  \item some constraints: integer divisibility, sign is known
+  \end{itemize}
+
+  array bound check:
+  \begin{itemize}
+  \item remove bound checks that can be proved redundant in a safe language
+  \item for the case of subscript expression with induction variable $\implies$ may be intractable to analyze
+  \item conditions for eliminating bounds checking (todo)
+  \end{itemize}
+
+  loop unrolling: copy loop body, reduce number of loop iterations by some factor
+
+  strength reduction
+
+  \section{Data Dependence in Loops}
+  types of dependence:
+  \begin{itemize}
+  \item $\delta^f$: flow dependence (write $\rightarrow$ read on same variable)
+  \item $\delta^a$: anti-dependence (read $\rightarrow$ write on same variable)
+  \item $\delta^o$: output dependence (write $\rightarrow$ write on same variable)
+  \item $\delta^i$: input dependence (read $\rightarrow$ read on same variable); usually not marked as dependence
+  \end{itemize}
+
+  normalized iteration index:
+  \begin{itemize}
+  \item consecutive index of iteration differ by 1 and lexicographically increasing
+  \item starting index at 0
+  \end{itemize}
+
+  semi-normalized iteration index:
+  \begin{itemize}
+  \item partial index at 0; others start at an offset
+  \end{itemize}
+
+  dependence vector when there exists dependence from iteration $i_{src}$ to iteration $i_{dest}$:
+  
+  $\delta_d^*$ where $d = i_{dest} - i_{src}$
+  
+  eg: $d=(0, 1, -2)$
+
+  dependence direction from dependence vector; useful when dependence distance can vary but maintain same direction:
+  \begin{itemize}
+  \item $\delta_d^* \rightarrow \delta_<^*$ where $d>0$
+  \item $\delta_0^* \rightarrow \delta_=^*$
+  \item $\delta_d^* \rightarrow \delta_>^*$ where $d<0$
+  \end{itemize}
+
+  eg, for multiple indices: $d=(0, 1, -2) \rightarrow (=, <, >)$
+
+  other conventions include $sign(d)$, $(+,0,-) \equiv (<,=,>)$
+
+  \subsection{Control Dependence}
+  
+  Y is control dependent on X\\
+  $\iff$ X is in the dominance frontier of Y in the reverse cfg\\
+  $\iff$ X is in the post-dominance frontier of Y
+  
+  \subsection{Parallel Loops}
+
+  use of access control constructs to respect presence of data dependence
+
+  different parallel loops with different semantics exist
+  
+  \subsubsection{Forall Loop}
+
+  Equivalent to a sequence of array assignments.
+  
+  For all statements, rhs expression of assignment is computed first for all values of the index variable before any writes are made.
+
+  Any data access conflicts between iterations of the loop resolved using lexically earliest access.
+
+  Note: lexical ordering defines rhs of assignment precedes lhs.
+
+  Then:
+  \begin{itemize}
+  \item within a single statement, there does not exist any flow dependence
+  \item usual case is anti-dependence
+  \end{itemize}
+  
+  \subsubsection{Dopar Loop}
+  All iterations of the loop starts with a copy of original values of variables before the loop started. Then:
+  \begin{itemize}
+  \item no flow dependence can exist in between different iterations of the loop, since no new updated values are accessible across iterations
+  \item data access conflict (between writes) $\implies$ undefined behaviour (programming error)
+  \item no dependence relation exist $\implies$ reduces to doall loop
+  \item loop independent dependence relations still holds as in sequential code
+  \item typically anti-dependence relation may exist across iterations
+  \end{itemize}
+  
+  \subsubsection{Dosingle Loop}
+  Single assignment to the same variable/memory allowed. Then:
+  \begin{itemize}
+  \item no output dependence relation can exist
+  \item no anti-dependence relation can exist
+  \item only flow dependence relation can exist
+  \end{itemize}
+
+  \subsection{Nested Loops}
+
+  data access conflict carried by outermost loop with a non-zero data access conflict distance, so look at that outermost loop that carries the conflict
+
+  \begin{itemize}
+  \item data access conflict carried by sequential for loop resolved when: dependence distance for the loop is positive (using normalized iteration vectors); dependence does not go backwards wrt. iteration space ordering
+  \item data access carried by dopar loop resolved when: anti-dependence relation exists between def and use; $>1$ definition to a same variable/memory is undefined behaviour
+  \item data access conflict carried by dosingle loop resolved when: flow dependence exists between def and use; $>1$ def to same variable/memory is an error
+  \item data cess conflict carried by forall loop resolved when: execution of list of statements are performed in lexical order
+  \end{itemize}
+
+  special cases of reduction operations that are commutative can ignore dependence relations and may be reordered in any way
+  
+  \subsection{program dependence graph}
+
+  composed of data dependence graph and control dependence graphs
+
+  a node for each statement
+
+  used to prevent reordering using data and control precedence constraints
+
+  \section{Scalar Analysis with Factored Use-Def Chains}
+
+  insertion of control flow merge points using $\phi$-node (counts as an assignment)
+
+  subsequent use of any variable has only one link in its use-def chain (either the original def statement or the inserted $\phi$-node)
+
+  insertion of merge points computable using join sets
+
+  equivalent computation using dominance frontier
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Alternative Form of IR: SSA}
+
+  improvement to def-use chain
+
+  1 type of intermediate representation where:
+  \begin{itemize}
+  \item each variable has 1 definition in program text (1 static site of definition, as opposed to dynamic single assignment in pure functional program)
+  \item may be in a loop executed many times
+  \end{itemize}
+
+  $x$ dominates $y$ $\iff$ node $x$ exists on every path from entry node to $y$
+
+  $x$ strictly dominates $y$ $\iff$ $x$ dominates $y$ $\wedge$ $x \neq y$
+  
+  advantages:
+  \begin{itemize}
+  \item simpler dataflow analysis
+  \item simpler optimization algorithms
+  \item size of SSA form is linear wrt. size of original program
+  \item useful to dominator structure of CFG $\implies$ simpler algos such as interference graph construction
+  \item eliminate unnecessary relationship for unrelated uses of same variable since they become different variables in SSA form
+  \item dominance property of SSA form:\\
+    either:
+    \begin{itemize}
+    \item x is the argument of $\phi$-function in block n $\implies$ definition of x dominates ith predecessor of n but not n
+    \item x is used in non-$\phi$- statement in block n $\implies$ definition of x dominates n (definition dominates uses)
+    \end{itemize}
+  \end{itemize}
+
+  \subsection{Construction of SSA Form}
+
+  \begin{itemize}
+  \item add $\phi$-function for variables
+  \item renames all definitions and uses of variable with enumeration
+  \end{itemize}
+
+  \subsubsection{Inserting $\phi$-functions using Path Convergence}
+  
+  criteria for insertion:
+  \begin{itemize}
+  \item path-convergence criterion
+    \begin{itemize}
+    \item there is a block x with a definition of variable $a$
+    \item there is a block $y \neq x$ with a definition of $a$
+    \item $P_{xz}$ path exists from x to z
+    \item $P_{yz}$ path exists from y to z
+    \item $P_{xz}$ and $P_{yz}$ do not have any node in common other than z
+    \item node z may appear at max once in either $P_{xz}$ or $P_{yz}$
+    \end{itemize}
+  \item $\phi$-function counts as a definition of $a$
+  \item consider start node to contain definition of all variables (formals, uninitialized ones)
+  \item solve by iteration: while criterion is not satisfied and $z$ does not contain a $\phi$-function for $a$: insert $a \leftarrow \phi(a, ..., a)$ at node $z$
+  \end{itemize}
+
+  \subsubsection{Efficient Insertion of $\phi$-Function Using Dominator Tree of CFG}
+
+  \begin{align*}
+    DominanceFrontier(x) & \equiv \{y: (\exists z \in Pred(y)) x\ dominates\ z\\
+                         & \wedge \neg (x\ strictly\ dominates\ y)\}
+  \end{align*}
+  eg: a border between dominated and undominated nodes wrt. x
+
+  dominance frontier criterion:
+  
+  node x contains a definition for some variable y $\implies$ all nodes in the dominance frontier of x need $\phi$-function for y
+
+  \subsubsection{Computing Dominance Frontier Using Dominator Tree}
+
+  dominator tree definition:
+
+  a tree where there exists an edge ($x \mapsto y$) $\iff x \text{ is the immediate dominator of } y$\\
+  idom(y) = x $\iff$ y$\in$(idom$^{-1}$(x))
+
+immediate dominator of x (eg: closest node that strictly dominates $x$):
+\begin{align*}
+  y = idom(x) & \iff y \text{ strictly dominates } x\\
+              & \wedge (\forall z) z \text{ dominates } x \implies z \text{ dominates } y\\
+  idom^{-1}(x) & = \{y: x=idom(y) \text{ holds}\}
+\end{align*}
+
+note:
+
+$(\forall x \neq \text{ entry node})\ idom(x) \text{ exists and is unique}$
+
+$idom^{-1}(x)$ are children of node x in the dominator tree
+
+dominator set:
+
+$dom(x)=\{y: y \text{ dominates } x\}$
+
+recursive definition:
+$dom(x) = \{x\} \cup (\cap_{p \in pred(x)} dom(p))$
+  
+$dom^{-1}(x) = \{y: x \text{ dominates } y\}$
+
+$sdom(x) = dom(x) - \{x\}$
+
+$x=idom(y) \iff$ x strictly dominates y $\wedge$ $((\forall z)$ z strictly dominates y $\implies$ z dominates x)
+
+dominance frontier:
+\begin{align*}
+  DF(x) &= DF_{local}(x) \cup (\cup_{c \in idom^{-1}(x)} DF_{up}(c))\\
+  DF_{local}(x) &= \{y: y \in Succ(x) \wedge idom(y) \neq x\}\\
+  DF_{up}(x) &= \{y: y \in DF(x)\\
+        & \wedge \neg(idom(x)\ strictly\ dominates\ y) \}\\
+  &\text{reduces to:}\\
+  DF(x) &= \{y: y \in Succ(x) \wedge idom(y) \neq x\}\\
+        &\cup (\cup_{c \in idom^{-1}(x)}\\
+        &\{y: y \in DF(c) \wedge (y=x \vee \neg(x \text{ dominates } y)\})
+\end{align*}
+note:\\
+$(y=x \vee \neg(x \text{ dominates } y))\\ \iff \neg (idom(c) = sdom(y)),\ x=idom(c)$
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{x (input node)}
+    \Output{DF of x}
+    $S \leftarrow \{\}$\\
+    //$DF_{local}$\\
+    $S \leftarrow S \cup \{ y: y \in Succ(x) \wedge idom(y) \neq x\}$
+
+    //use dom. tree\\
+    \For{$c$ $\in$ $idom^{-1}(x)$}{
+      //$DF_{up}$\\
+      $DF(c) \leftarrow computeDF(c)$\\
+      $S \leftarrow S \cup \{w: w \in DF(c)$\\
+      \Indp $\wedge (w=x \vee \neg (x\ dominates\ w))\}$\\
+      \Indm $DF(x) \leftarrow DF(X) \cup S$\\
+    }
+    $DF(x)$\\
+    \caption{Computing Dominance Frontier\label{Algo_dominance_frontier}}
+  \end{algorithm}
+
+  \subsubsection{Post Dominator}
+
+  assume there is an unique exit node that all nodes can reach, then:
+
+  $y$ is control dependent on $x$
+
+  $\iff$ $x \in$ post dominance frontier of $y$
+
+  $\iff$ $y$ post post dominates some successor of $x$ and does not post dominate some other successor of $x$
+
+  $\iff$ $x\in$ dominance frontier of $y$ wrt. reverse CFG
+  
+  $\iff$ $y$ dominates some predecessor of $x$ and not dominate some other predecessor of $x$ wrt. reverse CFG
+  
+  \subsubsection{Add $\phi$-functions}
+
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{nodes (input nodes)}
+    \Output{nodes with $\phi-functions$ added}
+    defsites :: $\{var\ $a$, w ::\{Node\}\} \leftarrow \{\}$\\
+    \For{$n \in$ nodes}{
+      //$A_{orig}[n] \equiv set\ of\ vars\ defined\ in\ node\ n$\\
+      \For{$var\ a \in A_{orig}(n)$}{
+        $defsites[a] \leftarrow defsites[a] \cup \{n\}$\\
+      }
+    }
+    \For{($a$, w) $\in$ defsites}{
+      \For{node $y \in$ DF(w.take())}{
+        //$A_{\phi}[y] \equiv \{z: z\ has\ \phi(..)\ at\ node\ y\}$\\
+        \If{$a\notin A_{\phi}[y]$}{
+          $A_{\phi}[y] \leftarrow A_{\phi}[y] \cup \{ a \}$\\
+          //note: phi function counts as a definition
+          insert $a \leftarrow \phi(a, ...)\text{ at top of node y}$\\
+          \If{$a \notin A_{orig}[y]$}{
+            $w \leftarrow w \cup \{ y \}$\\
+          }
+        }
+      }
+    }
+    \caption{Add $\phi$ Functions\label{Algo_add_phi_functions}}
+  \end{algorithm}  
+
+  \subsubsection{Renaming Variables}
+\begin{verbatim}
+
+fn rename_for_var(n: node/basic_block, a: variable):
+  for each statement S in n:
+    for each use of var x in S and S is not a phi-function:
+      i = stack[x].top
+      change x to x_i in S
+    for each definition of var a in S:
+      count[a]++
+      i = count[a]
+      stack[a].push(i)
+      change a to a_i for the definition in S
+  for each successor y of n:
+    let j be index where n is jth predecessor of y
+    i = stack[a].top
+    change a to a_i in jth operand of phi-function
+  for each child x of n in dominator tree:
+    rename_for_var(x, a)
+  for each definition of variable a in original S:
+    stack[a].pop()
+
+for each variable a:
+  count[a] = 0
+  stack[a] = [0]
+  rename_for_var(entry_node, a)
+
+\end{verbatim}
+
+  \subsubsection{Computing Dominator Tree}
+
+  creating a spanning tree with dfs and enumerate nodes ($dfnum(n)$) on first visit: $dfnum(a) \leq dfnum(b) \implies$ a is an ancestor of b
+
+  there exists an edge connecting node a to node b where $dfnum(a) > dfnum(b)$ $\implies$ node a is branched off from some node that is an ancestor of b
+
+  $d=idom(n) \implies dfnum(d) < dfnum(n)$
+
+  $dfnum(x) <= dfnum(n) \wedge x \notin Dom(n) \implies$ there exists a path that branches off above x and rejoins below x and at or above n
+
+  s is the semidominator of n $\iff$ s is the highest possible ancestor of n and there is a path that departs from the tree at s and rejoins the tree at node n
+
+  Semidominator theorem
+  \begin{align*}
+  &let\ d \equiv dfnum\\
+  &semidom(n) = \argmin_{x \in X}\ d(x)\\
+  &s.t.:\\
+  &X = \bigcup \begin{cases}
+    d(v) < d(n) &: \{v\}//proper\ ancestor\\
+    d(v) > d(n) &: \{ semidom(u):\\
+                        &\ \ \ (\forall u)\ d(u) \leq d(v) \}
+  \end{cases}
+  \end{align*}
+
+  Calculate dominator from semidominator
+
+  Let s be the semidominator of n. There exists a path that bypasses s by departing from spanning tree at a node above s and rejoins spanning tree at a node between s and n $\implies$ s does not dominate n
+
+  Let y be the node between s and n with smallest number semidomiator and semidom(y) is a proper ancestor of s $\implies$ idom(y) immediately dominates n
+
+  Dominator Theorem
+
+  let ys be nodes on the spanning tree path below semidom(n) and above or including n
+  
+  let y be the node in ys with smallest numbered semidominator, $y=\argmin_{x \in ys} dfnum(semidom(x))$
+
+  \begin{align*}
+    idom(n) = \begin{cases}
+      semidom(n) &, semidom(y) = semidom(n)\\
+      idom(y) &, semidom(y) \neq semidom(n)\\
+    \end{cases}
+  \end{align*}
+  
+  \subsubsection{Lengauer-Tarjan Algorithm}
+
+  algo. for computing idoms using semidominators
+
+\begin{verbatim}
+//helper functions
+
+//create spanning tree and enumerate dfnum
+fn dfs_dfnum(p, n) {
+  if dfnum[n].is_some(){
+    return
+  }
+  dfnum[n] = Some(N);
+  order[N] = n;
+  parent[n] = p
+  N += 1
+  for w in n.successors() {
+    dfs_dfnum(n, w);
+  }
+}
+//add edge to spanning forest (p->n)
+fn link(p, n){
+  ancestor[n] = p
+  best[n] = n
+}
+fn ancestor_with_lowest_semi(v){
+  a = ancestor[v];
+  if ancestor[a].is_some() {
+    b = ancestor_with_lowest_semi(a);
+    ancestor[v] = ancestor[a]; //path compression
+    //best[v]:= best node in skipped over path btw.
+    //ancestor[v] (non-inclusive) and v (inclusive)
+    if dfnum[semi[b]] < dfnum[semi[best[v]]] {
+      best[v] = b;
+    }
+  }
+  best[v]
+}
+\end{verbatim}
+  
+\begin{verbatim}
+N = 0;
+dfnum = nodes.iter().map(|_| None);
+root = 0;
+dfs_num(-1, root);
+
+let bucket = nodes.iter().map(|_| {});
+let semi = nodes.iter().map(|_| None);
+let ancestor = nodes.iter().map(|_| None);
+let idom = nodes.iter().map(|_| None);
+let samedom = nodes.iter().map(|_| None);
+
+for i in [1..N).rev() { //skip root
+  let n = order[i];
+  let p = parent[n];
+  //calc. semidom of n using semidominator theorem
+  let s_prime = n.predecessors().map(|v|{
+    if dfnum[v] <= dfnum[n] { v }
+    }else{ semi[ancestor_with_lowest_semi(v)] }})
+    .min_by(|a,b| dfnum[a] < dfnum[b]);
+  let s = p.min(s_prime);
+
+  semi[n] = s; //s is semidominator of n with lowest dfnum
+
+  //To defer calc. of n's dominator until
+  //path from s to n has been linked in forest.
+  //These are candidate nodes that can be idom of n
+  //maps s -> {n: s maybe the idom of n}
+  bucket[s] = bucket[s].union({n});
+
+  link(p, n);
+
+  //calculate idom of v,
+  //where p may be the idom of v
+  for v in bucket[p] {
+    //path p to v linked in to spanning forest by now
+    y = ancestor_with_lowest_semi(v);
+    if semi[y] == semi[v] {
+      //use Dominator Theorem's 1st clause to calc. idom[v]
+      idom[v] = semi[v]; //semi[v]==p
+    }else{
+      samedom[v] = y; //defer until idom(y) is calculated
+    }
+  }
+  bucket[p].clear();
+}
+
+//deferred calculation using Dominator Theorem's 2nd clause
+for i in [1..N) {
+  let n = order[i];
+  if samedom[n].is_some(){
+    idom[n] = idom[samedom[n]]
+  }
+}
+\end{verbatim}
+ 
+  \subsection{Algos using SSA}
+
+  data structures:
+
+  statements:\\
+  containing block\\
+  previous statement in block\\
+  next statement in block\\
+  variables defined\\
+  variabled used\\
+  statement type: assignment, $\phi$-function, fetch, store, branch
+
+  variable:\\
+  definition site\\
+  list of use sites
+
+  block:\\
+  list of statements\\
+  ordered list of predecessors\\
+  successors
+
+  \subsubsection{Dead Code Elimination}
+  
+  list of uses of a variable is empty $\implies$ variable is not live at site of definition\\
+  SSA $\implies$ definition dominates every use\\
+  when definition has no side effect $\implies$ delete defining statement, remove use site for all used variables in the statement, add these variables to the worklist if their list of uses is empty
+
+\begin{verbatim}
+w = {x: x is a variable in SSA}
+while let v = w.take() {
+  if !v.use_sites.empty() {
+    continue;
+  }
+  let S = v.definition_statement
+  if !S.has_no_side_effects(){
+    continue;
+  }
+  for x in S.used_vars() {
+    x.remove_use_site(S);
+    if x.use_sites.empty() {
+      W.add(x);
+    }
+  }
+  program.remove(S);
+}
+\end{verbatim}
+
+  \subsubsection{Constant Propagation}
+
+\begin{verbatim}
+w = {x: x is a statement in SSA}
+while let S = w.take() {
+  let if (v = phi(c,..,c)) = S where c.is_constant() {
+    S.replace_with((v = c));
+  }
+  let if (v = c) = S where c.is_constant() {
+    for each statement T where v in T.used_vars() {
+      T.var(v).replace_with(c);
+      w.add(T);
+    }
+    program.remove(S);
+  }
+}
+\end{verbatim}
+
+  \subsubsection{Copy Propagation}
+
+\begin{verbatim}
+for each statement S {
+  match S {
+    (x = y) | (x = phi(y)) => {
+      program.remove(S);
+      for i in x.use_sites() {
+        i.replace_with(y);
+      }
+    }
+    _ => {}
+  }
+}
+\end{verbatim}
+
+  \subsubsection{Constant Folding}
+
+\begin{verbatim}
+for each statement S {
+  match S {
+    (x = a op b) where
+      a.is_constant() && b.is_constant()
+    => {
+      let c = x.eval_compile_time();
+      S.replace_with(c);
+    }
+    _ => {}
+  }
+}
+\end{verbatim}
+  
+  \subsubsection{Constant Conditions}
+
+\begin{verbatim}
+fn const_cond(L: block) {
+  for let (if cond(a, b) goto L1 else L2) in L
+    where a.is_constant() && b.is_constant() {
+    let c = cond(a, b);
+    let L_removed = if c { L2 } else { L1 };
+    S.remove(L_removed);
+    for phi_func in L {
+      if let pred = phi_func.predecessor_removed() {
+        phi_func.remove_argument(pred.position);
+      }
+    }
+  }
+}
+\end{verbatim}
+
+  \subsubsection{Unreachable Code}
+
+\begin{verbatim}
+fn try_remove_block(L: block) {
+  if !L.predecessors.empty() {
+     return
+  }
+  //block is unreachable
+  for S in L.statements() {
+    for x in S.vars() {
+      x.remove_use_site(S);
+    }
+  }
+  L.statements().clear();
+  for succ in L.successors() {
+    let l = succ.predecessors().len();
+    succ.predecessors().remove(L);
+    let l_after = succ.predecessors().len();
+    if l > l_after && l_after == 0 {
+      try_remove_block(succ);
+    }
+  }
+}
+\end{verbatim}
+
+  \subsubsection{Conditional Constant Propagation}
+
+  goal: extend simple constant propagation to propagate through conditional branches
+
+  impl: use iterative algo. that removes unreachable branches and processes potential constant expressions in a worklist
+
+  block not assumed to be executed unless there is evidence that it can do so
+
+  variable assumed to be constant unless there is evidence that it can be non-constant
+
+  track tuntime value of variable through a few states, $V[var]=$
+  \begin{itemize}
+  \item $\bot$: not exeutable (default)
+  \item $\langle val \rangle$: assigned with 1 value of val
+  \item $\top$: $\geq 2$ different values assigned
+  \end{itemize}
+  variables without definition (I/O, formal parameters, uninitialized var): $V[var]=\top$
+
+  $\mathcal{E}[block]=$
+  \begin{itemize}
+  \item false: no evidence block can be ever executed (default)
+  \item true: there is evidence that block can be executed
+  \end{itemize}
+
+  block B with 1 successor block C: $\mathcal{E}[C]=$ true
+
+  run the algo. with the following observations:
+
+  \begin{itemize}
+    \item for any executable assignment $v \leftarrow x\ op\ y$ where $V[x] = c1$ and $V[y] = c2$, set $V[v] \leftarrow c1\ op\ c2$
+    \item for any executable assignment $v \leftarrow x\ op\ y$ where $V[x] = \top$ or $V[y] = \top$, set $V[v] \leftarrow \top$
+    \item for any executable assignment $v \leftarrow \phi(x_1 , ..., x_n )$, where $V[x_i] = c1$, $V[x_j] = c2$ , $c1 \neq c2$, the ith predecessor is executable, and the jth predecessor is executable, set $V[v] \leftarrow \top$
+    \item for any executable assignment $v \leftarrow MEM()$ or $v \leftarrow CALL()$, set $V[v] \leftarrow \top$
+    \item for any executable assignment $v \leftarrow \phi(x _ , ..., x_n)$ where $V[x_i] = \top$ and the ith predecessor is executable, set $V[v] \leftarrow \top$
+    \item for any assignment $v \leftarrow \phi(x_1, ..., x_n)$ whose ith predecessor is executable and $V[x_i] = c1$; and for every j either the jth predecessor is not executable, or $V[x_j] = \bot$, or $V[x_j] = c1$, set $V[v] \leftarrow c1$
+    \item for any executable branch if $x < y$ goto $L_1$ else $L_2$, where $V[x] = \top$ or $V[y] = \top$, set $E[L_1] \leftarrow true$ and $E[L_2] \leftarrow true$
+    \item for any executable branch if $x < y$ goto $L_1$ else $L_2$, where $V[x] = c1$ and $V[y] = c2$, set $E[L_1] \leftarrow true$ or $E[L_2] ← true$ depending on $c1 < c2$
+  \end{itemize}
+
+  \subsection{Control Dependence Graph}
+  
+  $x \in DF(y)$ in the reverse CFG\\
+  $\iff$ $(\exists z) x$ branches to $z$ and $y$ post-dominates $z$\\
+  $\iff$ y is control dependent on x\\
+  $\iff$ CDG has an edge $x \rightarrow y$
+
+  
+  Using SSA graph and CDG to answer if A executes before B:
+
+  there exists a path $A \rightarrow B$ composed of SSA use-def edges and CDG edges $\implies$ A performed before B
+  
+  Dead Code elimination:
+
+  assume statement is dead unless ther eis evidence that it contributes to result of the program
+
+  solve by iteration:
+  \begin{itemize}
+  \item mark live any statement that ferforms I/O, memory stores, side-effects
+  \item mark live any definition of variable that is used by any live statement (reverse flow problem)
+  \item mark live conditional statement where there exists another live statement that is control dependent on the conditional branch
+  \end{itemize}
+
+  finally delete all unmarked statements
+
+  \subsection{Converting back from SSA form}
+
+  remove $\phi$-function and turn back into executable program
+
+  insert move $y \leftarrow x_i$ at the end of ith predecessor of the block containing $\phi$-function $y \leftarrow \phi(x_1, x_2,...,x_n)$
+
+  use edge split SSA form (unique successor and predecessor property) $\implies$ prevent redendant moves from being inserted
+
+
+  \subsection{Register Allocation after SSA Transforms}
+
+  live range of enumerated variables from SSA may interfere
+
+  use coalescing (copy propagation) in register allocation to eliminate move instructions
+
+  \subsubsection{Live Range Analysis Using SSA}
+
+  construct interference graph of SSA program prior to converting $\phi$-functions to move instructions:
+  \begin{itemize}
+  \item walk backward from use of variable to definition of variable
+  \item dominance property of SSA $\implies$ algo. always in region dominated by definition of variable
+  \item live range calc. in SSA: use of live-in and live-out of blocks and statements for mutually recursive algo. to build interference graph for each original variable while walking backwards (algo 19.17)
+  \end{itemize}
+
+  \subsection{Functional Intermediate Form}
+  expressions broken down into oprimitive ones with order of eval specified
+
+  every intermediate result is an explicitly named temporary
+
+  every argument of operator/function is an atom (variable/constant)
+
+  every variable has single assignment (binding) only
+
+  every use of variable is in the scope of the assignment/binding $\implies$ not require calc. of dominators
+
+  relation to SSA form:
+  \begin{itemize}
+  \item translate from SSA form:\\
+    control flow node with $>1$ predecessor becomes a function (arguments are variables corresponding to $\phi$-function at the node)
+  \item node f dominates node g $\implies$ function for g nested inside body of function for f
+  \item control flow edge into $\phi$ containing node is represented by a function call
+  \end{itemize}
+  
+  \vfill\null
+  \columnbreak
+
+  \section{Pipelining}
+
+  single program instruction level parallelism (ILP)
+
+  check to ensure data dependent instructions do not exist in adjacent for enabling issuing $\geq2$ instructions in parallel
+
+  techniques:
+
+  \begin{itemize}
+  \item dynamic scheduling machine
+  \item superscalar machine
+  \item pipleined machine
+  \item VLIW
+  \end{itemize}
+
+  optimize for instruction level parallelism with presence of constraints on instruction execution:
+  \begin{itemize}
+  \item data dependence
+  \item functional unit resources
+  \item instruciton issue unit
+  \item register resources
+  \end{itemize}
+
+  partial instruction execution parallelism
+
+  paseudo-constraints (may be elided by renaming variables): write after write, write after read
+
+  loop scheduling without resource bounds
+
+  trace scheduling
+  parallel branch execution and conditional move afterward
+  \begin{itemize}
+  \item optimal for branches of same exeuction cycles
+  \item not valid for branch with side effects
+  \end{itemize}
+
+  static vs. dynamic H/W supported scheduling
+
+  branch preduction
+  \begin{itemize}
+  \item schedule long-latency, predictable operations
+  \item low latency, short instruction programs: branch prediction is harder and instruction fetch speed is an issue
+  \item superscalar machine:
+    \begin{itemize}
+    \item can fetch multiple instr. after branch:\\
+      branch not taken: fetched instr. used immediately\\
+      o/w: instr. stall
+    \item can assume branch will be taken and fetch instr. at target:\\
+      branch not taken: stall\\
+      o/w: fetch instr. used
+    \item mix of both instr. fetch from both branches
+    \end{itemize}
+  \item static (compiler predicted) vs. dynamic (H/W suiupport for recent frequently executed branch):
+    \begin{itemize}
+    \item encode preduction via extra bitfield to the H/W
+    \item can use various heuristics in frequent branching pattern
+    \end{itemize}
+  \end{itemize}
+    
+  \vfill\null
+  \columnbreak
+
+  \section{FP: Lambda Calculus}
+
+  \subsection{Denotionaal Semantics}
+  
+  evaluation of an expression (syntactic object according to rules of language) to a mathematical object: \verb|eval[[expr]] = value|
+
+  context dependent variable (use of environment):
+\begin{lstlisting}
+  eval[[x]] p $\equiv$ (p x)
+  where:
+    p is an environment
+    p :: variable name -> variable value
+
+  eval[[$\lambda$x.E]] p a
+    $\equiv$ eval[[E]] p[x=a]
+    $\equiv$ (p[x=a] E)
+    where:
+    variable x is bound to value a in p
+    p[x=a] x = a
+    p[x=a] y = p y, x != y
+\end{lstlisting}
+  
+\subsection{Strictness}
+
+$f$ is strict $\iff f \bot = \bot$, where $\bot$ does not halt
+
+$f$ is strict wrt. 2nd parameter $\iff (\forall\ a, b) f\ a\ \bot\ b = \bot$
+
+lazy $f$ as an implemenation of a non-strict $f$
+
+\subsection{Convertibility and Extensional Equality}
+
+$E_1$ and $E_2$ convertible via lambda calculus\\
+$\implies$ \verb|eval[[E1]] = eval[[E2]]|
+
+$F_1$ and $F_2$ extensionally equal\\
+$\iff$ \verb|eval[[F1]] = eval[[F2]]| for all possible arguments
+
+  \subsection{Enriched Lambda Calculus}
+  enriched lambda calculus with additional constructs: $\vrectangle$, pattern matching lambda abstraction, case expression
+  
+  fatbar operator:
+  \begin{align*}
+    \vrectangle\ a\ b = \begin{cases}
+      b&,\ a = Fail\\
+      a&,\ otherwise (a=\bot \vee a=Not\ Fail)
+    \end{cases}
+  \end{align*}
+  equivalently:
+\begin{align*}
+  \bot\ &\vrectangle\ b = \bot\\
+  Fail\ &\vrectangle\ b = b\\
+  a\ &\vrectangle\ b = a,\ a \neq \bot \wedge a \neq \text{Fail}
+\end{align*}
+
+  let expression semantics:
+  
+  \verb|let v = B in E|\\
+  $\equiv$ \verb|((\v.E) B)|
+  
+  multiple definitions $\iff$ nested let expressions
+
+  using Y (fixed-point) combinator to make definition non-recursive:
+  
+  \verb|letrec v = B in E|\\
+  $\equiv$ \verb|let v = Y (\v.B) in E|
+
+  if there are multiple definitions, use pattern matching to pack definitions into a product type variable before applying Y
+
+  \verb|Y = \h.((\f.(h(f f))) (\f.(h(f f))))|
+  
+  properties:
+\begin{verbatim}
+  X = H X
+  Y H = X
+  Y H = H X = H(H(..(X)..) = H(H(..(Y H)..)
+\end{verbatim}
+  
+  TE: translation scheme for expression,
+\begin{verbatim}
+TE[[ expr ]] = ..
+\end{verbatim}
+  where $TE[[..]]$ is a syntactic object and RHS is also syntactic
+
+  eg:
+\begin{verbatim}
+TE[[ k ]] = k, k is a constant
+TE[[ E_1 E_2 ]] = TE[[E_1]] TE[E_2]]
+TE[[ func ]] = Func, where Func is a built-in function
+\end{verbatim}
+
+  TD: translation scheme for definition,
+
+  \verb|TD[[ v = E ]]| $\equiv$ \verb|v = TE[[ E ]]|
+  
+  \verb|TD[[ f v1 .. vn = E ]]| $\equiv$ f = $\lambda v_1$ .. $\lambda v_n$ . \verb|TE[[ E ]]|
+
+  (lambda abstraction is generated around a body of definition)
+
+  recursively apply TE and TD schemes until no more conversions can occur
+
+  A program consists of a set of definitions and a top level expression to be evaluated, eg:
+\begin{verbatim}
+  defs:
+  f a b = a + b
+  g x = x * x
+  ---
+  f a (3+5)
+\end{verbatim}
+  translates to:
+\begin{verbatim}
+  letrec
+    TD[[ f a b = a + b ]]
+    TD[[ g x = x * x ]]
+  in
+    TE[[ f 2 (3+5) ]]
+\end{verbatim}
+  apply TE and TD schemes (recursively):
+\begin{verbatim}
+  f a b = \a.\b.(+ a b)
+  g x = \x.(* x x)
+  in
+    f 2 (+ 3 5)
+\end{verbatim}
+  translate via TD scheme:
+\begin{verbatim}
+(\f.(f 2 (+ 3 5))) (\a.\b.(+ a b))
+\end{verbatim}
+
+  \section{Structured Types}
+  
+  general structured type:
+  \begin{align*}
+    T :=\ & \ \ C_1\ T_{1,1}\ ..\ T_{1, r_1}\\
+          & |\ ..\\
+          & |\ C_n\ T_{n,1}\ ..\ T_{n, r_n}
+  \end{align*}
+  sum of products ($T_{i,1}$ .. $T_{i,r_i}$)
+
+  $n=1 \implies$ type is a product type (1 constructor)
+  
+  $n>1 \implies$ type is a sum type (more than 1 constructor)
+  
+  Eg:
+  
+  \verb#tree * := Leaf * | Branch (tree *) (tree *)#
+
+  type forming operator / type constructor: \verb|tree|\\
+  constructor functions: \verb|Leaf, Branch|
+
+  sample syntactic shortcuts for value expressions:
+
+  \verb|TE[[ [] ]] = Nil|\\
+  \verb|TE[[ : ]] = Cons|\\
+  \verb|TE[[ (E1, E2) ]] = Pair TE[[E1]] TE[[E2]]|\\
+  \verb|TE[[ [E1, .., En] ]]| $\equiv$ \verb|Cons TE[[E1]] TE[[ [E2, .., En] ]]|
+
+  where:
+
+  \verb#list * := Nil | Cons * (list *)#
+
+  example type expression: \verb|list *|
+  
+  \section{FP: Pattern Matching}
+
+  pattern matching abstraction properties:
+  \begin{itemize}
+  \item overlapping pattern $\implies$ order of pattern eval matters
+  \item nested pattern
+  \item non-exhaustive equations in patterns
+  \item guards on RHS of conditional equations; can be combined with use of pattern maching on LHS of equations
+  \item use of repeated variable sin pattern matches $\iff$ variables are equal on LHS of equation
+  \end{itemize}
+
+  types of patterns:
+  \begin{itemize}
+  \item simple variable: v
+  \item constant: k
+  \item sum constructor: $(s\ p_1\ ..\ p_n)$\\
+    where:\\
+    $s\equiv$ a sum constructor\\
+    $p_i\equiv$ patterns
+  \item product constructor: $(t\ p_1\ ..\ p_n)$\\
+    where:\\
+    $t\equiv$ a product constructor\\
+    $p_i\equiv$ patterns
+  \end{itemize}
+
+  refutable patterns: sum constructor pattern, constant pattern
+  
+  irrefutable patterns: simple variable pattern, product constructor pattern
+  
+  \subsection{Lambda Abstraction Pattern Matching}
+
+  binding names present in LHS pattern of definitions are available to components destructured on RHS
+
+\begin{lstlisting}
+TD[[ p = R ]] $\equiv$ TE[[ p ]] = TR[[ R ]]
+\end{lstlisting}
+where $p$ is a pattern
+
+Eg:
+\begin{verbatim}
+f w = x+ y
+      where
+      (x, y) = w
+\end{verbatim}
+
+translates to:
+
+\begin{verbatim}
+f = \w.( letrec (Pair x y) = w
+         in (+ x y)
+       )
+\end{verbatim}
+
+pattern matching with multiple arguments for function:
+  \begin{align*}
+    f\ p_1\ ...\ p_m = E
+  \end{align*}
+  where $p_i$s are patterns and $f$ is a function
+
+  This translates to lambda abstraction:
+  \begin{align*}
+    f = \lambda v_1\ ..\ \lambda v_m . (&(((\lambda TE[[p_1]]\ ..\ \lambda TE[[p_m]]). TE[[E]])\ v_1\ ..\ v_m)\\
+                                        & \vrectangle\ Error)
+  \end{align*}
+  where $v_i$s are new unique variables that do not occur in $E$
+
+  TR: translation scheme for right hand side of a definition, eg:
+
+\begin{lstlisting}
+TR[[= $A_1, G_1$
+    = ..
+    = $A_n, G_n$
+where
+    $D_1$
+    ..
+    $D_m$]]
+$\equiv$
+letrec TD[[$D_1$]]
+       ..
+       TD[[$D_m$]]
+in (IF TE[[$G_1$]] TE[[$A_1$]]
+    (IF TE[[$G_2$]] TE[[$A_2$]]
+      ..
+        (IF TE[[$G_n$]] TE[[$A_n$]] Fail)..))
+\end{lstlisting}
+     
+  where $A_i$ is an epxression, $G_i$ is a boolean expression, $D_i$ is a definition
+
+  note visiblity of $where$ clause is extended over alternatives and guards
+
+  eg:
+
+\begin{lstlisting}
+f (x:xs) = x, x < 0
+  (x:[]) = x
+  (x:xs) = f xs
+
+f = \v.(((\(Cons x xs). IF (< x 0) x Fail) v)
+       $\vrectangle$((\(Cons x Nul). x) v)
+       $\vrectangle$((\(Cons x xs). f xs) v)
+       $\vrectangle$Error)
+\end{lstlisting}
+
+\vfill\null
+\columnbreak
+
+\section{FP: Semantics of Pattern Matching Lambda Abstraction}
+
+\verb|(\p.E)| where $p$ is: variable / constant / sum constructor / product constructor
+
+\subsection{Simple Variable Pattern}
+where $p=v$ is a simple variable
+
+then no-op:
+
+$(\lambda p.E) \Rightarrow (\lambda v.E)$
+
+\subsection{Constant Pattern Lambda Abstraction}
+where $k$ is a constant
+\begin{lstlisting}
+Eval[[$\lambda$k.E]] $\bot$ = $\bot$
+Eval[[$\lambda$k.E]] a = Eval[[E]], if Eval[[k]] = a
+Eval[[$\lambda$k.E]] a = Fail, if Eval[[k]] $\neq$ a $\wedge$ a $\neq$ $\bot$
+\end{lstlisting}
+
+Possible implementation, with a new lambda abstraction $\lambda$x
+\begin{lstlisting}
+$\lambda$k.E $\equiv$ $\lambda$x. IF (= x k) E Fail
+\end{lstlisting}
+where $x$ does not occur free in $E$
+
+Example of definition using constant pattern matches:
+\begin{lstlisting}
+f 0 = 1
+f 1 = 0
+
+f = \x.(((\0.1) x)
+       $\vrectangle$((\1.0) x)
+       $\vrectangle$Error)
+
+f = \x.(((\y. IF (= y 0) 1 Fail) x)
+       $\vrectangle$((\y. IF (= y 1) 0 Fail) x)
+       $\vrectangle$Error)
+\end{lstlisting}
+
+    
+\subsection{Sum Constructor Pattern}
+
+$s$ is a sum constructor of arity $r$
+
+\begin{lstlisting}
+Eval[[ $\lambda$(s $p_1$ $..$ $p_r$).E ]] (s $a_1$ $..$ $a_r$)
+  = Eval[[ $\lambda p_1$ $..$ $\lambda p_r$.E ]] $a_1$ $..$ $a_r$
+Eval[[ $\lambda$(s $p_1$ $..$ $p_r$).E ]] (s' $a_1$ $..$ $a_r$)
+  = Fail, s $\neq$ s'
+Eval[[ $\lambda$(s $p_1$ $..$ $p_r$).E ]] $\bot$ = $\bot$
+\end{lstlisting}
+
+let
+
+\begin{lstlisting}
+UnpackSum$_s$ f (s a$_1$ .. a$_r$) = f a$_1$ .. a$_r$
+UnpackSum$_s$ f (s' a$_1$ .. a$_r$) = Fail, if s $\neq$ s'
+UnpackSum$_s$ f $\bot$ = $\bot$
+\end{lstlisting}
+
+then
+
+\begin{lstlisting}
+$\lambda$(s $p_1$ $..$ $p_r$).E = UnpackSum$_s$ ($\lambda$p$_1$ .. $\lambda$p$_r$.E)
+\end{lstlisting}
+
+eval constructor form but not its components to remain lazy
+
+if constructor pattern matches, then apply arguments and bind names to components of structure with $\beta$-reduction rule
+
+naturally handles nested patterns
+
+\vfill\null
+\columnbreak
+
+\subsection{Product Pattern Lambda Abstraction}
+
+$\pi$ is a product constructor of arity $n$
+
+\begin{lstlisting}
+Eval[[$\lambda$($\pi$ $p_1$ .. $p_n$).E]] a
+  = Eval[[$\lambda p_1$ .. $\lambda p_n$.E]] (Sel$_{\pi,1}$a) .. (Sel$_{\pi,n}$ a)
+\end{lstlisting}
+
+where $(Sel_{t,i}\ a)$ lazily projects a component:
+
+\begin{lstlisting}
+Sel$_{t,i}$(t $a_1$ .. $a_r$) = $a_i$
+Sel$_{t,i}$ $\bot$ = $\bot$
+\end{lstlisting}
+
+if no component is used, then the structure is not evaluated:
+
+\begin{lstlisting}
+Eval[[ \(Pair x y).0 ]] $\bot$
+= Eval[[ \x.\y.0 ]] (Sel$_{Pair,1}$ $\bot$) (Sel$_{Pair,2}$ $\bot$)
+= Eval[[ \y.0 ]] (Sel$_{Pair,2}$ $\bot$)
+= 0 
+\end{lstlisting}
+where by construction: Sel$_{Pair,i}$ $\bot$ = $\bot$
+
+if struct analysis determines an argument is needed, then use strict product matching instead (eval argument at time of function application)
+
+  Possible Implementation:
+\begin{lstlisting}
+$\lambda$(t p$_1$ .. p$_n$).E = UnpackProduct$_t$ ($\lambda$ p$_1$ .. p$_n$).E
+
+where
+
+UnpackProduct$_t$ f x = f (Sel$_{t,1}$ x) .. (Sel$_{t,n}$ x)
+\end{lstlisting}
+
+\begin{lstlisting}
+Eval[[$\lambda$(t p$_1$ .. p$_n$).E]] a
+  = UnpackProduct$_t$ (($\lambda$ p$_1$ .. p$_n$).Eval[[E]]) a
+\end{lstlisting}
+
+  \subsection{Reducing number of Built-in Functions}
+  use of an id/tag to discriminate objects built from different constructors:
+
+  (tag, component fields) to represent a structured object
+
+  results in a more homogeneous system for functions
+
+  loses type info afterwards, therefore apply this after type checking in a type checked language
+
+  runtime type checking not possible after these transformations
+
+  modify utility functions:
+
+  \begin{lstlisting}
+    UnpackSum$_{d, r_s}$
+    PackSum$_{d, r_s}$: sum constructor
+  \end{lstlisting}
+  where d is the structure tag/id of sum type, r$_s$ is arity of the sum structure
+
+  \begin{lstlisting}
+    UnpackProduct$_{r_t}$
+    PackProduct$_{r_t}$: product constructor
+    Sel$_{r_t, i}$: projection of ith component
+  \end{lstlisting}
+
+  where r$_t$ is arity of product type (no need to have a structure tag)
+  
+  \vfill\null
+  \columnbreak
+
+  \section{FP: Enriched Lambda Calc. to Ordinary Lambda Calc.}
+
+  goal: transform enriched lambda calculus into ordinary lambda calculus by getting rid of pattern matching abstractions
+  
+  \begin{itemize}
+  \item irrefutable let $\Rightarrow$ simple let
+  \item simple let $\Rightarrow$ ordinary lambda calculus
+  \item irrefutable letrec $\Rightarrow$ simple letrec
+  \item irrefutable letrec $\Rightarrow$ irrefutable let
+  \item general let(rec) $\Rightarrow$ irrefutable let(rec)
+  \end{itemize}
+
+  refutable to irrefutable pattern: use conformality check to ensure pattern match succeeds before continuing
+  \begin{itemize}
+  \item strict: check when let(rec) expression begin
+  \item lazy: check on 1st use of any components of pattern
+  \end{itemize}
+  
+  \subsection{Irrefutable Let to Simple Let}
+  
+  introduce new variable, use component projection Sel$_{t,i}$:
+
+\begin{lstlisting}
+let (t p$_1$ .. p$_n$) = B in E
+
+$\Downarrow$
+
+let v = B
+in let p$_1$ = Sel$_{t,1}$ v
+   ..
+   let p$_n$ = Sel$_{t,n}$ v
+   in E
+\end{lstlisting}
+  
+  \subsection{Simple Let to Ordinary Lambda Calculus}
+\begin{lstlisting}
+let v = B in E
+
+$\Downarrow$
+
+($\lambda$v.E) B
+\end{lstlisting}
+  
+  \subsection{Irrefutable Letrec to Simple Letrec}
+  introduce new variable, use component projection:
+
+\begin{lstlisting}
+letrec (t p$_1$ .. p$_n$) = B
+       ..  (possibly other definitions)
+in E
+
+$\Downarrow$
+
+letrec v = B
+       p$_1$ = Sel$_{t,1}$ v
+       ..
+       p$_n$ = Sel$_{t,n}$ v
+       ..
+in E
+\end{lstlisting}
+
+  \subsection{Irrefutable Letrec to Irrefutable Let}
+
+  pack definitions into a product type(irrefutable), apply Y combinator to make it non-recursive:
+
+\begin{lstlisting}
+letrec p$_1$ = B$_1$
+       ..   
+       p$_n$ = B$_n$
+in E
+
+$\Downarrow$
+
+letrec (t p$_1$ .. p$_n$) = (t B$_1$ .. B$_n$) in E
+p' $\equiv$ (t p$_1$ .. p$_n$)
+B' $\equiv$ (t B$_1$ .. B$_n$)
+letrec p' = B' in E
+let p'' = Y ($\lambda$p'.B') in E
+
+\end{lstlisting}
+  
+  \subsection{General Let(rec) to Irrefutable Let(rec)}
+
+  apply pattern matching lambda abstractions to match on specified pattern, add Error clause if no match occurs
+
+  \begin{lstlisting}
+p = B
+
+$\Downarrow$
+
+let v = B
+in
+(t v$_1$ .. v$_n$) = (($\lambda$p.(t v$_1$ .. v$_n$)) v) $\vrectangle$ Error
+
+where:
+
+v is a new variable
+
+v$_i$s are any variables that appear in pattern p
+
+t is a product constructor of arity n
+
+v$_i$ $\in$ Var(p)
+
+Var(p) = {v}, p is a variable
+       = {}, p is a constant
+       = $\bigcup_{i=1}^n$ Var(p$_i$), p is a structured pattern (c p$_1$ .. p$_n$)
+  \end{lstlisting}
+
+  note recursive definition if p is a constructor pattern
+
+  \subsection{Other}
+
+  $\vrectangle$ (fatbar) syntactic sugar: replace it with a prefix built-in function with same semantics as $\vrectangle$
+  
+  \vfill\null
+  \columnbreak
+  
+  \section{FP: Efficient Compilation of Pattern Matching}
+  
+  compiling function with pattern matching on RHS into efficient case expression:
+  
+  lambda abstraction $\rightarrow$ match expression $\rightarrow$ case expression
+
+  rearrange using variable/constructor/empty/mixture rule before compiling into the final case expression:
+  \begin{itemize}
+  \item variable rule
+  \item constructor rule
+  \item empty rule
+  \item mixture rule
+  \end{itemize}
+
+  \subsection{Preliminary}
+  
+  function definition represented with lambda abstraction:
+
+\begin{lstlisting}
+(($\lambda$p$_{1,1}$ $..$ $\lambda$p$_{1,n}$.E$_{1}$) u$_{1}$ $..$ u$_{n}$)
+ $\vrectangle$ $..$
+ $\vrectangle$ (($\lambda$p$_{m,1}$ $..$ $\lambda$p$_{m,n}$.E$_{m}$) u$_{1}$ $..$ u$_{n}$)
+ $\vrectangle$ Error
+\end{lstlisting}
+
+equivalent to match expression as shorthand:
+
+\begin{lstlisting}
+match [u$_{1}$ $..$ u$_{n}$]
+      [c$_1$,
+       ..
+       c$_m$]
+      E$_{\text{default}}$ 
+where:
+c$_i$ is a pattern matching clause ([p$_{i,1}$, $..$, p$_{i,n}$], E$_i$)
+
+=
+
+match [u$_{1}$ $..$ u$_{n}$]
+  [([p$_{1,1}$, $..$, p$_{1,n}$], E$_1$),
+   ..
+   ([p$_{m,1}$, $..$, p$_{m,n}$], E$_m$)]
+   E$_{\text{default}}$
+\end{lstlisting}
+
+\subsection{Empty Rule}
+\begin{lstlisting}
+match [] [([], E$_1$),
+          ..
+          ([], E$_m$)]
+         E$_\text{default}$
+
+$\Downarrow$
+         
+E$_1$ $\vrectangle$ .. $\vrectangle$ E${_m}$ $\vrectangle$ E$_{\text{default}}$
+\end{lstlisting}
+  
+\subsection{Variable Rule}
+all equations have list of patterns that begins with variable
+
+\begin{lstlisting}
+let (u:us) = [u$_1$ .. u$_n$]
+  
+match (u:us) [((v$_1$:ps$_1$), E$_1$),
+              ..
+              ((v$_m$:ps$_m$), E$_m$)]
+             E$_{\text{default}}$
+
+$\Downarrow$ Apply $\beta$-reduction(sub $u$ at occurence of v$_i$ in E$_i$)
+
+match us [((ps$_1$, E$_1$[u/v$_1$]),
+           ..
+           (ps$_m$, E$_m$[u/v$_m$])]
+         E$_{\text{default}}$
+\end{lstlisting}
+
+\subsection{Constructor Rule}
+
+all equations begin with same constructor
+
+group them if necessary: equation exchangeable iff relative order of equations with same constructor remains the same
+
+case expression is generated for each group associated with a same type of pattern
+
+missing constructors $\implies$ insert error clause into case expression using empty rule: \verb|match [] [] Error|
+
+\begin{lstlisting}
+match (u:us) (qs$_1$ ++ .. ++ qs$_k$) E$_{\text{default}}$
+  
+where:
+
+qs$_i$ (grouping of same constructor) $\equiv$
+  [(((c$_i$ ps$_{i,1}^{\prime}$):ps$_{i,1}$), E$_{i1}$),
+   ..
+   (((c$_i$ ps$_{i,m_i}^{\prime}$):ps$_{i,m_i}$), E$_{im_i}$)]
+
+p$^{\prime}_{s_i,j}$ is a constructor pattern $p_a\ p_b\ ..\ p_r$ for constructor c$_i$
+
+$\Downarrow$ transform to case expression
+
+case u of
+c$_1$ us$_1^{\prime}$ $\Rightarrow$ //group 1
+  match (us$_1^{\prime}$ ++ us)
+        [((ps$^{\prime}_{1,1}$ ++ ps$_{1,1}$), E$_{1,1}$),
+         ..
+         ((ps$^{\prime}_{1,m_1}$ ++ ps$_{1,m_1}$), E$_{1,m_1}$)]
+        E$_{\text{default}}$
+..
+c$_k$ us$_k^{\prime}$ $\Rightarrow$ //group k
+  match (us$_k^{\prime}$ ++ us)
+        [((ps$^{\prime}_{k,1}$ ++ ps$_{k,1}$), E$_{k,1}$),
+         ..
+         ((ps$^{\prime}_{k,m_k}$ ++ ps$_{k,m_k}$), E$_{k,m_k}$)]
+         E$_{\text{default}}$
+
+where:
+         
+us$^{\prime}_i$ is a list of unique variables destructured from
+  constructor c$_i$
+qs$_i$ corresponds to grouping of clauses with same constructor
+  at head of list  
+ps$_{i,j}$ is the remaining patterns of a clause
+\end{lstlisting}
+
+example:
+
+\begin{lstlisting}
+g f [] ys = []
+g f (x:xs) [] = []
+g f (x:xs) (y:ys) = (f x y):(g f xs ys)
+
+$\Downarrow$ transforms to
+
+g = $\lambda u_1.\lambda u_2. \lambda u_3$.
+      case $u_2$ of
+        Nil $\Rightarrow$ Nil
+        Cons $u_4$ $u_5$ $\Rightarrow$
+          case $u_3$ of
+            Nil $\Rightarrow$ Nil
+            Cons $u_6$ $u_7$ $\Rightarrow$ ($u_1$ $u_4$ $u_6$):(g $u_1$ $u_5$ $u_7$)
+\end{lstlisting}
+
+\vfill\null
+\columnbreak
+
+\subsection{Mixture Rule}
+
+equation with constructor and variable at head of pattern matching list
+
+use a cascade of matches where each section only has equations beginning with the same kind of pattern type (either variable or constructor)
+
+\begin{lstlisting}
+match us qs E$_{\text{default}}$
+
+$\Downarrow$
+
+//partition pattern clauses into groups
+let (qs$_1$ ++ .. ++ qs$_k$) = qs
+
+where:
+
+qs$_i$ is a list containing only equations that begins
+  with variable or constructor but not both:
+
+qs$_i$ = [([p$_{1,1}$, $..$, p$_{1,n}$], E$_1$),
+       ..
+       ([p$_{m,1}$, $..$, p$_{m,n}$], E$_m$)]
+$(\exists t \in \{\text{Var}, \text{Constructor}\})(\forall i)\ $p$_{i,1}$ is a pattern of type $t$
+
+$\Downarrow$
+
+match us
+      qs$_1$
+      (match us
+             qs$_2$
+             ..
+                      (match us
+                             qs$_k$
+                             E$_{\text{default}}$ ..))
+\end{lstlisting}
+
+apply rules to transform match to case expression for each section:
+
+\begin{lstlisting}
+us is empty $\Rightarrow$ apply empty rule
+      o/w   $\Rightarrow$ all equations begin with:
+                variable $\Rightarrow$ apply variablwe rule
+                constructor $\Rightarrow$ apply constructor rule
+                mixture $\Rightarrow$ apply mixture rule
+\end{lstlisting}
+
+\subsection{Optimization with Multiway Jump / Case Expressions}
+
+constant time eval of constructor type to select a clause
+
+\begin{lstlisting}
+case t of
+  c$_1$ v$_{1,1}$ .. v$_{1,r_1}$ $\Rightarrow$ E$_i$
+  ..
+  c$_n$ v$_{n,1}$ .. v$_{n,r_n}$ $\Rightarrow$ E$_n$
+\end{lstlisting}
+where:
+  \begin{itemize}
+  \item patterns are exhaustive and not nested
+  \item $v_{i,j}$ is a variable
+  \item $c_i$s are constructors that cover the structured type
+  \end{itemize}
+  
+  this is logically equivalent to the sequence:
+  \begin{align*}
+    (&(\lambda(c_1\ v_{1,1}\ ..\ v_{1,r_1}). E_1)\ v)\\
+     & \vrectangle\ ... \\
+     & \vrectangle\ (\lambda(c_n\ v_{n,1}\ ..\ v_{n,r_n}).E_n)\ v)
+  \end{align*}
+
+  eval during pattern matching possible if argument is determined to be strict
+
+possible implementations:
+\begin{itemize}
+\item using ordinary lambda calculus:\\
+  use UnpackProduct$_t$ / UnpackSum$_{s_i}$
+\item avoid lambda abstraction:\\
+  use Sel$_{t, i}$ instead of UnpackProduct\\
+  use SelSum$_{s_i, r_i}$ instead of UnpackSum
+\end{itemize}
+
+\subsubsection{Example impl. of case expression with product type using Sel$_{t,i}$}
+
+\begin{lstlisting}
+case v of
+  t v$_1$ .. v$_r$ $\Rightarrow$ E
+
+$\Downarrow$
+
+let v$_1$ = Sel$_1$ v
+    ..
+    v$_r$ = Sel$_r$ v
+in E
+\end{lstlisting}
+
+\subsubsection{Example impl. of case expression with sum type using tagged enumeration}
+
+\begin{lstlisting}
+case v of
+  s$_1$ v$_{1,1}$ .. v$_{1, r_1}$ $\Rightarrow$ E$_1$
+  ..
+  s$_n$ v$_{n,1}$ .. v$_{n, r_n}$ $\Rightarrow$ E$_n$
+
+$\Downarrow$
+
+case$_T$ v //use enumeration of v to select one of the arguments
+  (let v$_{1,1}$ = Sel$_{r_1,1}$ v
+       ..
+       v$_{1,r_1}r$ = Sel$_{r_1,r_1}$ v
+   in E$_1$)
+  ..
+  (let v$_{n,1}$ = Sel$_{r_n,1}$ v
+       ..
+       v$_{n,r_n}r$ = Sel$_{r_n,r_n}$ v
+   in E$_n$)
+
+where:
+
+T is a sum type
+
+case$_T$ (s$_i$ a$_1$ .. a$_{r_i}$) b$_1$ .. b$_i$ .. b$_n$ = b$_i$
+case$_T$ $\bot$ b$_1$ .. b$_n$ = $\bot$
+
+SelSum$_{n,i}$ where n is arity of target constructor
+
+\end{lstlisting}
+
+case$_T$ selects 1 of the arguments using constructor of 1st arugment instead of applying 1 of its arguments to components of 1st argument; avoids lambda abstractions in favour of let expressions when transforming to ordinary lambda calculus
+
+\vfill\null
+\columnbreak
+
+\section{FP: Dependency analysis of definitions}
+
+SSC + dependeing sort $\Rightarrow$ regroup into let and letrec groups
+
+  \begin{itemize}
+  \item replace letrec with let whenever possible for: efficient impl, easier typechecking
+  \item separate into groups of mutually recursive definitions (SSC in graph)
+  \item coaslesce SSC into single node
+  \item singleton node corresponds to non-recursive definition
+  \item perform dependecy anlaysis (topo. sort) on resulting acyclic graph and output ordering
+  \item nodes with $>1$ variables: use letrec, otherwise use let
+  \item nesting of scopes implies dependency of definitions
+  \item nodes are nested according to dependency analysis (group A(a1, a2) is in a nested scope of B(b) if definitions of A uses B):\\
+\begin{verbatim}
+let b = ..
+in ..
+   let a1 = ..
+       a2 = ..
+   in ..
+\end{verbatim}
+  \end{itemize}
+
+\vfill\null
+\columnbreak
+
+\section{FP: List Comprehension}
+\begin{lstlisting}
+[ expr | qualifier$_1$; ..; qualifier$_n$ ]
+\end{lstlisting}
+where qualitfier can be of one of the following types:
+\begin{itemize}
+\item p $\leftarrow$ generator where p is a refutable pattern
+\item boolean predicate
+\item empty
+\end{itemize}
+
+shorthand: $x, y \leftarrow z \iff x \leftarrow z; y \leftarrow z$
+
+\subsection{reduction rules assuming generator qualifier pattern is a variable}
+\begin{lstlisting}
+//generator qualifier
+[ E | v $\leftarrow$ []; QS ] $\Rightarrow$ [] //early termination
+
+[ E | v $\leftarrow$ H:TS; QS ] $\Rightarrow$
+  [ E | QS ][H/v] ++ [ E | v $\leftarrow$ TS; QS ]
+
+//boolean qualifier
+[ E | False; QS ] $\Rightarrow$ [] //early termination
+
+[ E | True; QS ] $\Rightarrow$ [ E | QS ]
+
+//empty qualifier
+[ E | ] $\Rightarrow$ [ E ]
+
+where:
+
+: $\equiv$ Cons
+
+QS is a list of qualifiers
+
+[ E | QS ][H/v] processes current selected element from
+  current generator qualifier by substituting H for v
+  in [ E | QS ]
+
+[ E | v $\leftarrow$ TS; QS ] selects another element from current
+  generator qualifier to process
+\end{lstlisting}
+
+example with lazy evaluator implementation:
+
+\begin{lstlisting}
+[ square x | x $\leftarrow$ [1 2 3]; odd x ]
+$\rightarrow$ [ square x | odd x ][1/x] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 | odd 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 | True ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 | ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+..
+$\rightarrow$ [ 1 ] ++ [ 2 ] ++ [ square x | x $\leftarrow$ [3]; odd x ]
+$\rightarrow$ [ 1 2 ] ++ [ square x | x $\leftarrow$ [3]; odd x ]
+..
+$\rightarrow$ [ 1 2 3 ]
+\end{lstlisting}
+
+\subsection{Translation to Lambda Calculus}
+\begin{lstlisting}
+TE[[ [ E | v $\leftarrow$ L; QS ] ]] =
+  flatmap ($\lambda$v.TE[[ [ E | QS ] ]]) TE[[ L ]]
+
+TE[[ [ E | B; QS ] ]] = IF TE[[ B ]] TE[[ [ E | QS ] ]] Nil
+
+TE[[ [ E | ] ]] = Cons TE[[ E ]] Nil
+
+where:
+
+flatmap f [] = []
+flatmap f x:xs = (f x) ++ (flatmap f xs)
+
+E: expression
+B: boolean expression
+L: list valued expression
+Q: sequence of qualifiers
+v: a variable
+\end{lstlisting}
+
+\subsection{Efficiency Improvements with Inplace Expansion}
+replace with enriched lambda calculus:
+
+\begin{lstlisting}
+flatmap ($\lambda$v.E) L
+
+$\Downarrow$
+  
+letrec h = $\lambda$us.case us of
+  Nil $\Rightarrow$ Nil
+  Cons v us' $\Rightarrow$ Append E (h us')
+in (h L)
+\end{lstlisting}
+
+then,
+
+\begin{lstlisting}
+TE[[ [ E | v $\leftarrow$ L; Q ] ]] =
+  flatmap ($\lambda$.TE[[ [ E | Q ] ]]) TE[[ L ]]
+
+$\Downarrow$
+
+TE[[ [ E | v $\leftarrow$ L; Q ] ]] =
+  letrec h = $\lambda$us.case us of
+    Nil $\Rightarrow$ Nil
+    Cons v us' $\Rightarrow$ Append TE[[ [ E | Q ] ]] (h us')
+  in (h TE[[ L ]])
+\end{lstlisting}
+
+\subsection{Efficiency Improvements by Reducing Number of Cons operations}
+
+let
+
+\begin{lstlisting}
+TQ[[ [ E | v $\leftarrow$ L$_1$; QS ] ++ L$_2$ ]] $\equiv$
+  letrec h = $\lambda$us.case us of
+    Nil $\Rightarrow$ TE[[ L$_2$ ]]
+    Cons v us' $\Rightarrow$ TQ[[ [ E | QS ] ++ (h us') ]]
+  in (h TE[[ L$_1$ ]])
+
+TQ[[ [ E | B; QS ]] ++ L ]] $\equiv$
+  IF TE[[ B ]] TQ[[ [ E | QS ]] ++ L ]] TE[[ L ]]
+
+TQ[[ [ E | ]] ++ L ]] $\equiv$ Cons TE[[ E ]] TE[[ L ]]
+\end{lstlisting}
+
+\subsection{Pattern Matching in List Comprehension}
+
+apply pattern matching lambda abstraction
+
+if the pattern does not match in generator qualifier, then skip the element
+
+reduction rules:
+
+\begin{lstlisting}
+[ E | p $\leftarrow$ []; QS ] $\rightarrow$ []
+[ E | p $\leftarrow$ H:T; QS ] $\rightarrow$
+  ((($\lambda$p.[ E | QS ]) H) $\vrectangle$ []) ++ [ E | p $\leftarrow$ T; QS ]
+\end{lstlisting}
+
+in the case of pattern being a simple variable then it will be irrefutable and lambda pattern matching abstraction can be simplified:
+
+\begin{lstlisting}
+((($\lambda$v.[ E | QS ]) H) $\vrectangle$ [])
+$\Rightarrow$ (([ E | QS ][H/v]) $\vrectangle$ []) //$\beta$-reduction
+$\Rightarrow$ ([ E | QS ][H/v])
+\end{lstlisting}
+
+\subsection{Modifications to Translation Scheme}
+
+\begin{lstlisting}
+TE[[ [ E | p $\leftarrow$ L; QS ] ]] =
+  flatmap
+  ($\lambda$u.((($\lambda$TE[[ p ]].TE[[ [ E | QS ] ]]) u) $\vrectangle$ Nil))
+  TE[[ L ]]
+
+TE[[ [ E | v $\leftarrow$ L; QS ] ]] =
+  flatmap ($\lambda$v.TE[[ [ E | QS ] ]]) TE[[ L ]]
+
+TE[[ [ E | B; QS ] ]] =
+  IF TE[[ B ]] TE[[ [ E | QS ] ]] Nil
+
+TE[[ [ E | ] ]] = Cons TE[[ E ]] Nil
+
+where v is a simple variable
+
+note u is a new unique variable introduced
+\end{lstlisting}
+
+\subsection{Modifications of TQ scheme}
+
+\begin{lstlisting}
+TQ[[ [ E | q $\leftarrow$ L$_1$; QS ] ++ L$_2$ ]] $\equiv$
+  letrec h = $\lambda$us.case us of
+    Nil $\Rightarrow$ TE[[ L$_2$ ]]
+    Cons v us' $\Rightarrow$
+      (($\lambda$TE[[ q ]].TQ[[ [ E | QS ] ++ (h us') ]]) u) $\vrectangle$ (h us')
+  in (h TE[[ L$_1$ ]])
+
+TQ[[ [ E | B; QS ]] ++ L ]] $\equiv$
+  IF TE[[ B ]] TQ[[ [ E | QS ]] ++ L ]] TE[[ L ]]
+
+TQ[[ [ E | ]] ++ L ]] $\equiv$ Cons TE[[ E ]] TE[[ L ]]
+
+note h, u, us, us' are new unique variables introduced
+\end{lstlisting}
+
+\section{FP: Program representatoin}
+
+give a representation of lambda expression in memory
+
+graph reduction: transforms syntax tree (expression to be evaluated) to a graph (possibly cyclic)
+
+data structure for discriminating different types via tag fields:
+\begin{itemize}
+\item structure tags for data objects
+\item system tags for system objects (application, lambda abstraction ,builtin ops, ..
+\end{itemize}
+
+boxed vs. unboxed representation: possibly implmented using pointer bit in field to discriminate these
+
+tag bits in field to support runtime type info
+
+\section{FP: Selecting Next Redex to be Reduced}
+
+an evaluator performs reduction on the graph representation of the program to reduce the graph to a normal form
+
+reduction needs to select which redex to be reduced
+
+call by value (eager/strict) vs. call by need (lazy)
+
+call by need:
+\begin{itemize}
+\item arguments to function evaluated only if value is needed, not at time of function application
+\item any evaluation performed only once maximum and used afterwards
+\item implementable via normal order reduction (order: leftmost outermost redex first), eg: select function application to reduce first before reducing arguments to the application
+\end{itemize}
+
+strict sementics uses applicative order reduction: reducing argument to lambda expression before reducing application of lambda expression to the argument
+
+\subsection{Weak Head Normal Form}
+
+sufficient to eval all top level variables (via normal order reductions) such that there is no more top level redexes; inner nested components of data structures may have redexes remaining
+
+a lambda expression is in WHNF $\iff$
+\begin{lstlisting}
+F E$_1$ .. E$_n$, $n\geq 0$ and
+( F is a variable / data object, or
+  F is a lambda abstraction / builtin function and
+    $(\forall m \leq n$)(F E$_1$ .. E$_m$) is not a redex)
+\end{lstlisting}
+
+property of WHNF: expression has no top level redex
+
+normal form: inner redexes also need to be reduced; implies WHNF
+
+apply normal order reduction to top level redexes to get WHNF
+
+continue apply normal order reduction of inner redexes to get normal form
+
+by construction, top level reduction can bever involve free variables:
+\begin{itemize}
+\item arguments of redex have no free variables
+\item name capture problem can never arise
+\end{itemize}
+
+\subsection{Find Next Redex at Top Level}
+builtin function or lambda abstraction with too few arguments or no argument $\implies$ in WHNF
+
+data object $\implies$ in WHNF
+
+builtin function with enough arguments $\implies$ $(f\ E_1\ ..\ E_n)$ selected as outermost redex
+
+lambda abstraction with $\geq 1$ arguments available $\implies$ $(f\ E_1)$ is next redex
+
+\subsection{Normal Order Reduction Using Tree}
+unwinding the spine (traverse leftmost branch downward)
+
+vertebrae: node (eg: application node)
+
+rib: argument
+
+get arguments during the process of unwinding, eg: explicit stack or pointer reversing impl.
+
+spine stack: save pointers to vertebrae; number of arguments = depth of stack
+
+rewinding the spine
+
+\section{FP: Reducing a Redex}
+
+as a local transformation of the graph representing the expression to be reduced
+
+assuming the redex is selected for reduction, then a lambda abstraction or builtin function is located at the tip of the spine
+
+\subsection{Reduction of Application with Lambda Abstraction}
+
+lambda abstraction applied to an argument
+
+use $\beta$-reduction rule
+
+create an instance of lambda abstraction's body
+
+substitute argument for free occurences of the target formal parameter in the body of the lambda abstraction
+
+
+\begin{tblr}[]{}
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(lambdax) [below left of=app]{$\lambda x$};
+  \node(arg) [below right of=app]{True};
+  \node(app2) [below of=lambdax] {@};
+  \node(f) [below left of=app2] {Not};
+  \node(x) [below right of=app2] {x};
+  \draw (app) -- (lambdax);
+  \draw (app) -- (arg);
+  \draw (lambdax) -- (app2);
+  \draw (app2) -- (f);
+  \draw (app2) -- (x);
+\end{tikzpicture} & 
+
+$\rightarrow_{\text{xform}}$ &
+
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(f) [below left of=app]{$\lambda x$};
+  \node(arg) [below right of=app]{True};
+  \draw (app) -- (f);
+  \draw (app) -- (arg);
+\end{tikzpicture}
+\end{tabular}
+
+$\iff$
+
+($\lambda$x.Not x) True $\rightarrow$ (Not True)
+
+sharing of redex and lambda abstraction: create new instances and do modification on those
+
+large arguments: use pointers instead when doing substitution to formal parameters
+
+rewrite root of redex with result ensures expressions shared are reduced only once
+
+subcomponents of redex may be detatched afterward from the graph for garbage collection
+
+\subsection{Preserving Original Lambda Abstraction for Reuse by Other Parts of the Program}
+create a new instance of its body when the abstraction is used
+
+detatch the template lambda abstraction from local graph after instantiation
+
+eg, use a helper utility:
+\begin{lstlisting}
+instantiate(Body, Var, Value) $\equiv$ Body[Value/Var]
+\end{lstlisting}
+
+recursive function: apply case analysis for how to apply substitution to lambda abstraction
+
+\subsection{Lazy Graph Reduction}
+eval by need: use normal order evaluation to get WHNF $\implies$ arguments to function eval'd only if they are needed
+
+eval same expression only once:
+\begin{itemize}
+\item substitute pointers instead of raw arguments to formal parameters $\implies$ deduplicate unevaluated arugment
+\item update redex root with result $\implies$ evaluated redex cached for future uses to deduplicate works of re-evaluating
+\end{itemize}
+
+\subsection{Reduction of Application with Builtin Function}
+\begin{enumerate}
+\item recursively eval arguments by evaluator and reset root of redex to current redex under consideration
+\item eval function
+\item replace root of redex with result
+\end{enumerate}
+
+\subsection{Indirection Nodes}
+
+\begin{itemize}
+\item unboxed objects update
+\item update where body of lambda abstraction is a single variable
+\end{itemize}
+
+a solution to indirection such that no sharing is lost: eval result to WHNF before updating root of redex
+
+using indirection node to result vs. copying root of result of root of redex in the case of the root of result is not constructed during reduction
+\begin{itemize}
+\item needed if result if unboxed object
+\item no issue if root of result is bigger than root of redex
+\item but need additional tests for indirectionality and deref as they are encountered leading to slowness
+\end{itemize}
+
+\subsection{Impl. of Y Combinator}
+by definition:
+
+\begin{lstlisting}
+  T f $\rightarrow_{\text{reduces to}}$ f ( Y f)
+\end{lstlisting}
+
+possible approaches:
+
+\begin{tblr}{ccc}
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(f) [below left of=app]{Y};
+  \node(arg) [below right of=app]{f};
+  \draw (app) -- (f);
+  \draw (app) --  (arg);
+\end{tikzpicture} &
+$\rightarrow$ &
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(f) [below left of=app]{f};
+  \node(app2) [below right of=app]{@};
+  \node(f2) [below left of=app2]{Y};
+  \node(arg) [below right of=app2]{f};
+  \draw (app) -- (f);
+  \draw (app) -- (app2);
+  \draw (app2) -- (f2);
+  \draw (app2) -- (arg);  
+\end{tikzpicture}
+\end{tblr}
+
+or
+
+\begin{tblr}{ccc}
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(f) [below left of=app]{Y};
+  \node(arg) [below right of=app]{f};
+  \draw (app) -- (f);
+  \draw (app) --  (arg);
+\end{tikzpicture} &
+$\rightarrow$ &
+\begin{tikzpicture}
+  \node(app) {@};
+  \node(f) [below left of=app]{f};
+  \draw (app) -- (f);
+  \draw[->] (app) to [out=315, in=45, looseness=5] (app);
+\end{tikzpicture}
+\end{tblr}
+
+2nd approach wuth cyclic graph:
+\begin{itemize}
+\item con: cycle is an potential issue for GC with ref counting
+\item pro: use finite representation in storage to represent infinite object (recursive function, infinite data structure)
+\end{itemize}
+
+
+\section{FP: Supercombinator}
+
+goal: transform lambda expression into a form such that lambda abstractions are easier to instantiate
+
+a possible approach via lambda lifting where lambda abstractions are transformed into supercombinators
+
+\subsection{Combinator}
+definition: a lambda expression which contains no occurences of free variable (eg: a pure function)
+
+supercombinators(further restrictions on top of being combinators) $\in$ combinators $\in$ lambda expressions
+
+previously, instantiation done through recursive tree walk over over the lambda body
+
+alternative: compilation to a fixed sequence of instructions to construct instance of lambda body $\implies$ instantiation of lambda body becomes following instruction sequence associated with it
+
+dealing with free variables in lambda body:
+\begin{itemize}
+\item access values of free variables via environment by code sequence associated with the lambda abstraction
+\item alternative: transform program where lambda abstractions can be easily compiled $\implies$ does not require additional environment
+\end{itemize}
+
+modified $\beta$-reduction by perform serveral $\beta$-reductions at once:
+\begin{itemize}
+\item less intermediate structure generated
+\item following algo. of performing normal order reduction until WHNF is reached $\implies$ no work can be done on inner lambda abstraction until it is given another argument
+\end{itemize}
+
+\subsection{Supercombinator}
+
+lambda expression of the form:
+\begin{lstlisting}
+$\lambda$x$_1$. .. $\lambda$x$_n$.E
+\end{lstlisting}
+where
+\begin{itemize}
+\item n $\geq$ 0
+\item E is not a lambda abstrction
+\item no free variables exist
+\item any lambda abstraction in E is a supercombinator
+\end{itemize}
+
+amenable for multi-argument reduction
+
+\subsection{Supercombinator of Arity $n>0$}
+unit of compilation
+
+no free variables $\implies$ can compile a fixed code sequence
+
+any lambda abstraction in body have no free variables $\implies$ no copying when instantiating supercombinator body
+
+\subsection{Supercombinator of Arity 0 / Constant Applicative Form}
+
+known as CAF
+
+can still be a function
+
+no free variables and no $\lambda$s at front $\implies$
+\begin{itemize}
+\item never instantiated
+\item  no code need to be compiled
+\item 1 instance of its graph can be shared
+\end{itemize}
+
+\subsection{Supercombinator Creation}
+
+represent a program with:
+\begin{itemize}
+\item a set of supercombinator definitions
+\item an expression to be evaluated
+\end{itemize}
+
+supercombinator reduction takes place when all required arguments are present
+
+implementation aspects:
+\begin{itemize}
+\item algo. to translate all lambda abstractions into supercombinators, eg: lambda lifting
+\item an implemenation of supercombinator reduction
+\end{itemize}
+
+\subsection{Lambda Lifting}
+
+make each free variable into an extra parameter (abstracting free variable) $\iff$ $\beta$-abstraction (inverse of $\beta$-reduction)
+
+eg:
+
+\begin{lstlisting}
+($\lambda$y. + y x) $\Rightarrow$ ($\lambda$w.$\lambda$y. + y w) x
+\end{lstlisting}
+
+supercombinator notation:
+\begin{lstlisting}
+$\textdollar$F = $\lambda$W.$\lambda$Y. + Y W
+$\Leftrightarrow$ $\textdollar$F W Y = + Y W (shorthand form)
+\end{lstlisting}
+where \verb|$F| is an arbitrary unique name given to a supercombinator
+
+select a lambda abstraction, where there is no inner lambda abstractions in its body, to transform to supercombinator
+
+apply this algo. until there is no more lambda abstractions
+
+in the final form of the transformed program, the expression has no free variables since it is a top level expression $\implies$ make it a CAF (0-parameter supercombinator)
+
+eg:
+
+\begin{lstlisting}
+original program:
+($\lambda$x.$\lambda$y. - y x) 3 4
+
+supercombinator definitions:
+$\textdollar$XY x y = - y x
+..
+$\textdollar$Prog = $\textdollar$XY 3 4
+---
+top level expression:
+$\textdollar$Prog
+\end{lstlisting}
+
+$\eta$-reduction of supercombinator difinitions may eliminate redundant definitions and this leads to smaller supercombinator definition set in replacements in expression
+
+order parameters such that parameters corresponding to deeper nested lambda abstraction are put towards the back of parameter list $\implies$ makes $\eta$-reduction possible
+\begin{itemize}
+\item compute level number of lambda abstraction using textual nesting level: current level is number of surrounding lambda abstractions plus one
+\item top level constants including supercombinators are defined to have a level of 0
+\end{itemize}
+
+impl. of compiling supercombinator body can use techniques from previous sections with graphs; jno free variables $\implies$ never need to be copied; substitution with multiple variables at once
+
+alternatively represent body of supercombinator with a sequence of code only (no environment necessary) $\implies$ instantiation of supercombinator body corresponds to running the code sequence
+
+\section{FP: Recursive Supercombinators}
+
+\section{FP: Fully Lazy Lambda Lifting}
+
+\section{FP: SK Combinators}
+
+\section{FP: Type Checking}
+
+\section{FP: G Machine}
+
+\section{FP: Optimizations to G Machine}
+
+\section{FP: Generalized Tail Call Optimization}
+
+\section{FP: Parallel Execution}
+
+  \vfill\null
+  \columnbreak
+    
+  \bibliographystyle{plain}
+  \bibliography{notebook}
+    
+  \end{multicols*}
+
+\end {document}
