@@ -4682,7 +4682,149 @@ alternatively represent body of supercombinator with a sequence of code only (no
 
 \section{FP: Recursive Supercombinators}
 
+extend body of supercombinator to have general graph
+
+\begin{itemize}
+\item \verb|letrec| expressions for representing cyclic body and infinite data structures
+\item \verb|let| expression for acyclic body
+\end{itemize}
+
+\subsection{Transforming recursive program into supercombinator with graphical bodies}
+
+assign lexical level numbers to variables bound in \verb|letrec|
+\begin{itemize}
+\item variable instantiated when immediate textually enclosing lambda abstraction is applied to an argument (when we construct instance of letrec, substituting for all free variables)\\
+  $\implies$ variable bound in a letrec given lexical level number of immediately enclosing lambda abstraction
+
+\item if no enclosing lambda abstraction, assign level number of 0
+\item no free variables $\implies$ use lambda lifting to remove inner lambdas and transform into supercombinator
+\end{itemize}
+
 \section{FP: Fully Lazy Lambda Lifting}
+
+\begin{itemize}
+\item share dynamically created constant epressions
+\item each expression evaluated at most once after variables in it have been bound
+\end{itemize}
+
+\subsection{Maximal Free Expressions}
+
+\subsection{Formal Definition}
+maximal free expression of a lmabda abstraction L $\equiv$
+\begin{itemize}
+\item all variables in expression are free
+\item the expression is not a proper subexpression of another free expression of L
+\end{itemize}
+
+issue: laziness lost if too much of body of lambda abstraction is instantiated
+
+determine what parts should not be instantiated: parts of the body that contain no free occurences of formal parameter $\implies$ that subexpression is invariant accross all instantiations, therefore can use 1 instance and share it
+
+duing $\beta$-reduction, do not instantiate maximal free expressions of lambda abstractions; point to a single shared instance in the body of lambda abstraction
+
+\subsection{Fully Lazy Lambda Lifting}
+
+modify lambda lifting algo. such that impl. of the resulting supercombinator program is automatically fully lazy: abstract maximal free expressions when doing lambda lifting of a lambda abstraction instead of abstracting only free variables of lambda abstraction as extra parameters
+
+when maximal free expression has no free variables in it (CAF) $\impies$ give it a name and make it into a supercombinaor instead of abstracting it as an extra parameter; given name used instead of the expression
+
+2 phases:
+\begin{itemize}
+\item float \verb|letrec| and \verb|let| definitions out as far as possible
+\item perform fully lazy lambda lifting
+\end{itemize}
+
+use a variable's set of free variables that the variable depends on\\
+$\impies$ float the variable outwards until the next enclosing lambda abstraction binds 1 of the variables in the variable's free variable set\\
+$\implies$ if no free variables at all, then variable/definition floated out to top level and turned into supercombinator
+
+\subsection{Implementing Fully Lazy Lambda Lifting}
+
+use lexical level number of expressions in addition to that of variables
+
+lexical level of expression $\equiv max_i(\text{lexical level of } i), \forall i \in \text{free variables in expression}$ 
+
+when lambda lifting a lambda abstraction at level n, all expressions within the body, that have levels less than n, are taken out as extra parameters
+
+level number of any constant = 0 by definition
+
+level number of a variable is the textual nesting depth of lambda which binds it
+
+level number of an application \verb|(f x)| is the maximum of the level numbers of f and x
+
+expression's native lambda abstraction $\equiv$ the 1st lambda abstraction which binds any variable in the expression; the enclosing lambda abstraction of the expression where level number is the same as that of the expression
+
+implementation in a single tree walk over the expression:
+\begin{enumerate}
+\item traverse down the tree, record the level number of each lambda abstraction
+\item on the way back up of the traversal, compute the level number of each expression by using the environment and level number of the expression's subexpressions
+  \begin{itemize}
+  \item in application of expression, if the level numbers are the same then two expressions are merged, if not they are given new unique names (they will be maximal free expressions of distinct lambda abstractions)
+  \item merging mechanism $\implies$ forming maximal free expressions
+  \end{itemize}
+\item on way back up the traversal, from smaller free expressions encountered, lambda is transformed into supercombinator; lambda abstraction is replaced by supercombinator applied to maximal free expressions (subexpressions with level number less than that of the lambda abstraction after merging)
+\end{enumerate}
+
+lifting CAFs alternative:
+\begin{itemize}
+\item define a new supercombinator of 0 arguments
+\item use the defined supercombinator in place of the oringal expression
+\item constant expression with a single constant $\implies$ leave it since there is no additional benefit of liting it
+\end{itemize}
+
+reordering parameters of supercombinator in increasing level number
+\begin{itemize}
+\item maximize $\eta$-reduction opportunities
+\item useful for maximal free expression parameters as well (take out smaller number of larger free expressions)
+\end{itemize}
+
+\subsection{float definitions given in let and letrec outward}
+
+in order to have full laziness
+
+assumes that dependency analysis of let(recs) have already been performed earlier, or else some definitions may not be floated out as outward as possible
+
+impl. may possibly combined this phase with dependency analysis step
+
+an algo:
+\begin{itemize}
+\item immediately enclosing lambda abstraction has the same level number as that of the variables bound in let(rec)
+\item let(rec) is not present in function portion of an applicatoni
+\item let(rec) floated out as little as possible subject to above constraints $\implies$ enable optimization of unreachable code
+\end{itemize}
+
+more concrete algo:
+\begin{enumerate}
+\item compute level numbers of each definition body $\implies$ needed for computing level number of variables that are bound to it
+\item for letrec, assume level number of variables defined in letrec is 0 (level \# of recursive definition depends only in its free variables and not on level \# of recursive definition)
+\item for letrec, compute maximum of level numbers of definitions' bodies $\implies$ this is the level \# for variables bound in letrec\\
+  for let, level \# is computed in previous step (level \# of definition body)\\
+  $\implies$ use this computed \# for variables bound in let(rec)
+\item float out definitions up until the next enclosing lambda abstraction has the same level \# as that of variables defined in let(rec) computed in previous step
+\item let(rec) appears in function position of an application $\implies$ continue to float it to next outer level
+\end{enumerate}
+
+note: letrec rebinds a variable already in scope $\implies$ cannot be floated outward unless renaming of variables is done (to avoid capturing occurences of outer variables)
+
+situations where fully lazy lambda lifting does not gain improvements: selectively apply ordinary lambda lifting instead of fully lazy version
+\begin{itemize}
+\item builtin operator or supercombinator applied with too few arguments $\implies$ no eval takes place anyways so extra work to abstract out expressions is not worth it
+\item arguments of function may be considered for abstraction
+\item constant expressions (candidates for new supercombinator definition) do not gain much from abstracting them out since they are irreducible anyways
+\end{itemize}
+
+\subsection{general rules}
+lambda abstraction \verb|\x.E| in a context that cannot be shared\\
+$\implies$ do not abstract free expressions from E because they will not be shared\\
+$\implies$ only abstract free variables
+
+justifications:\\
+free expressions in E are not shared outside of E by definition\\
+free expressions in E are not shared inside E since they are abstracted from a single place in E
+
+in the above way, lambda lifting algo. becomes context dependent
+
+figuring out if a lambda abstraction may be shared is difficult in general, but we may give up at any time and assume partial applicatoin may be shared
 
 \section{FP: SK Combinators}
 
