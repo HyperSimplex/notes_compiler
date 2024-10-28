@@ -4828,6 +4828,209 @@ figuring out if a lambda abstraction may be shared is difficult in general, but 
 
 \section{FP: SK Combinators}
 
+\begin{lstlisting}
+S f g x = f x g(x)
+K x y = x
+I x = x
+\end{lstlisting}
+
+extensional equality
+
+compile-time transformations with S, K, I:
+I-transformation:
+\begin{lstlisting}
+$\lambda$x.x $\implies$ I
+\end{lstlisting}
+
+K-transformation
+\begin{lstlisting}
+$\lambda$x.c $\implies$ K c
+\end{lstlisting}
+
+S-transformation:
+\begin{lstlisting}
+$\lambda$x.e$_1$ e$_2$ $\implies$ S ($\lambda$x.e$_1$)($\lambda$x.e$_2$)
+\end{lstlisting}
+
+use of S, K, I to compile any lambda abstraction to expression with S, K, I terms and constants; other variables disappear
+
+basic algo.:
+\begin{lstlisting}
+while expr. contains a lambda abstraction, then:
+  choose an innermost lambda abstraction in expr.
+  body of the lambda abstraction is:
+    application $\Rightarrow$ apply S-transformation
+    variable/constant $\Rightarrow$ apply K or I transformation
+\end{lstlisting}
+
+recursion $\implies$ use Y-combinator; Y is treated as a builtin function by the combinator compilation algorithm
+
+\subsection{SK Compilation Algo.}
+\begin{lstlisting}
+C[[ e$_1$ e$_2$ ]] = C[[ e$_1$ ]] C[[ e$_2$ ]]
+C[[ $\lambda$x.e ]] = A x [[ C[[ e ]] ]]
+C[[ cv ]] = cv
+A x [[ x ]] = I
+A x [[ cv ]] = K cv
+A x [[ f$_1$ f$_2$ ]] = S (A x [[ f$_1$ ]]) (A x [[ f$_2$ ]])
+
+where:
+
+cv $\equiv$ a constant / builtin function
+x $\equiv$ a variable
+f$_i$ $\equiv$ expr. without any inner $\lambda$s
+e$_i$ $\equiv$ expression
+\end{lstlisting}
+
+note: C applied to body of lambda before applying A $\implies$ all inner lambdas are dealt with; A only has to deal with atoms and applications
+
+\subsection{K Optimization}
+
+fewer reductions, enable more laziness
+
+\begin{lstlisting}
+S (K p) (K q) $\Rightarrow$ K (p q)
+\end{lstlisting}
+
+when body of lambda abstraction does not use parameter of lambda:
+\begin{lstlisting}
+A x [[ e ]] = K e $\iff$ x not used in e
+\end{lstlisting}
+
+\subsection{B Combinator}
+
+\begin{lstlisting}
+S (K p) q $Rightarrow$ B p q $\equiv$ $\lambda$x.p (q x)
+
+where:
+
+B f g x = f (g x) //runtime reduction
+\end{lstlisting}
+
+useful when lambda abstraction only uses parameter in the right branch
+
+\subsection{C Combinator}
+\begin{lstlisting}
+S p (K q) $\Rightarrow$ C p q $\equiv$ $\lambda$x.(p x) q
+
+where:
+
+C f g x = f x g
+\end{lstlisting}
+
+useful when lambda abstraction only uses parameter in the left branch
+
+special case for \verb|S (K p) I| $\Rightarrow$ \verb|p|
+
+\subsection{modification to SK compilation algo. using the above}
+
+\begin{lstlisting}
+A x [[ f ]] $\equiv$ abstracts x from f
+---
+A x [[ x ]] = I
+A x [[ cv ]] = K cv
+A x [[ f$_1$ f$_2$ ]] = S (A x [[ f$_1$ ]]) (A x [[ f$_2$ ]])
+  $\Rightarrow$ Opt[[ S (A x [[ f$_1$ ]]) (A x [[ f$_2$ ]])
+
+where:
+
+Opt[[ S (K p) (K q) ]] = K (p q)
+Opt[[ S (K p) I ]] = p
+Opt[[ S (K p) q ]] = B p q
+Opt[[ S p (K q) ]] = C p q
+Opt[[ S p q ]] = S p q
+\end{lstlisting}
+
+\subsection{S' Combinator Optimization}
+for compiling
+\begin{lstlisting}
+$\lambda$x$_n$ .. $\lambda$x$_1$.p q where p and q both use x$_n$ .. x$_1$
+\end{lstlisting}
+
+let:
+\begin{lstlisting}
+S' c f g x = S (B c f) g x
+  $\rightarrow$ (B c f) x (g x)
+  $\rightarrow$ B c f x (g x)
+  $\rightarrow$ c (f x) (g x)
+\end{lstlisting}
+
+then:
+
+\verb|S' c f g x = c (f x) (g x)|
+
+$\implies$
+
+\begin{lstlisting}
+p q
+= S $^1$p $^1$q
+= S' S $^2$p $^2$q
+= S' (S' S) $^3$p $^3$q
+...
+= S' (S' (..(S' S)..) ) $^n$p $^n$q //n-1 times of S'
+
+where:
+
+$^1$p = A x$_1$ [[ p ]]
+$^2$p = A x$_2$ [[ $^1$p ]]
+...
+\end{lstlisting}
+
+\verb|O(n)| expansion complexity
+
+analogous B' and C' combinators for abstracting many variables used only in p or q but not both
+
+\begin{lstlisting}
+B' c f g x $\rightarrow$ c f (g x)
+C' c f g x $\rightarrow$ c (f x) g
+
+compilation rules:
+
+B (c f) g $\Rightarrow$ B' c f g
+C (B c f) g $\Rightarrow$ C' c f g
+\end{lstlisting}
+
+eg:
+
+\begin{lstlisting}
+C (B c f) g x = (B c f x) g
+              = c (f x) g  
+\end{lstlisting}
+
+further optimization for B':
+
+\begin{lstlisting}
+B c (B f g) $\Rightarrow$ B$^*$ c f g
+
+where:
+
+B$^*$ c f g x $\rightarrow$ c(f(g x))
+\end{lstlisting}
+
+\subsection{Final SK Compilation Algo.}
+\begin{lstlisting}
+Opt[[ e ]] optimizes e
+---
+Opt[[ S (K p) (K q) ]] = K (p q)
+Opt[[ S (K p) I ]] = p
+Opt[[ S (K p) (B q r) ]] = B$^*$ p q r = $\lambda$x.p(q(r x))
+Opt[[ S (K p) q ]] = B p q
+Opt[[S (B p q) (K r) ]] = C' p q r = $\lambda$x.p (q x) r
+Opt[[ S p (K q) ]] = C p q
+Opt[[ S (B p q) r ]] = S' p q r = $\lambda$x.p (q x) (r x)
+
+where:
+
+I x $\rightarrow$ x
+K c x $\rightarrow$ c
+S f g x $\rightarrow$ f x (g x)
+B f g x $\rightarrow$ f (g x)
+C f g x $\rightarrow$ (f x) g = f x g
+S' c f g x $\rightarrow$ c (f x) (g x)
+B$^*$ c f g x $\rightarrow$ c(f(g x))
+C' c f g x $\rightarrow$ c(f x) g
+\end{lstlisting}
+
 \section{FP: Type Checking}
 
 \section{FP: G Machine}
