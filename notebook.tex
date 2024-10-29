@@ -5035,6 +5035,208 @@ C' c f g x $\rightarrow$ c(f x) g
 
 \section{FP: G Machine}
 
+compiling supercombinators to G-code
+
+compilation scheme F:
+
+\begin{lstlisting}
+F[[ $\textdollar$G x$_1$ .. x$_n$ = E ]] = G-code for $\textdollar$G
+\end{lstlisting}
+
+use of graph and stack for evaluation
+
+auxilliary R compilation scheme to compile body, E, of supercombinator:
+\begin{lstlisting}
+R[[ E ]] p d
+
+where:
+
+p: maps identifier to offset of the argument from
+   the base of the current context
+d: depth of current context - 1
+R: create instance of body of supercombinator using
+     parameters on the stack
+   update root of redex with copy of root of result
+   remove parameters from the stack
+   initiate next reduction
+\end{lstlisting}
+
+C compilation scheme:
+
+constructs code/instructions for generating an instance of a target expression
+
+args: expression for compilation; p and d: where arguments of supercombinator are found on the stack
+
+result:
+\begin{itemize}
+\item code sequence that can construct instance of the expression
+\item substitution of found parameters with supercombinator arguments that are referenced
+\item a pointer to the instance on top of the stack
+\end{itemize}
+
+define \verb|C[[ E ]] p d| for each case of expression E
+
+\begin{lstlisting}
+C[[ i ]] p d = PushInt i
+C[[ f ]] p d = PushBlobal f
+C[[ x ]] p d = Push (d - p x) //copy to top of stack
+C[[ E$_1$ E$_2$ ]] p d =
+  C[[ E$_2$ ]] p d;
+  C[[ E$_1$ ]] p (d+1);
+  MakeAp
+C[[ let x = E$_x$ in E$_b$ ]] p d =
+  C[[ E$_x$]] p d;//create Ex instance on top of stack
+  C[[ E$_b$]] p[x=d+1] (d+1);//create Eb on stack using
+    instantiated pointer to Ex already on stack
+  Slide 1;//discard associated item with Ex on stack
+C[[ letrec D = E$_b$ ]] p d =
+  CLetrec[[ D ]] p' d';
+  C[[ E$_b$ ]] p' d';
+  Slide (d'-d);//discard item associated with D on stack
+    since it is referenced by Eb, while keeping item
+    associated with Eb instance on top of stack
+
+where:
+
+i is a constant value or pointer to the value
+f is a function
+x is a variable; value is in the stack at offset
+  (d - p x) from the top
+MakeAp is an application cell that takes and pops
+  2 items on stack and forms application node in
+  the heap, puts a pointer to the node on top of
+  the stack
+p[x=y] a = y,   x = a
+         = p a, x $\neq$ a
+(p', d') = Xr[[ D ]] p d
+CLetrec[[ x$_1$ = E$_1$
+          ..
+          x$_n$ = E$_n$ ]] p d =
+  Alloc n;//create n holes in heap and pushes n
+    pointers onto stack
+  C[[ E$_1$ ]] p d; Update n;//construction of
+    definition body instance; updates associated hole
+    in heap with root of created instance of
+    definition body
+  ..
+  C[[ E$_n$ ]] p d; Update 1
+Xr[[ x$_1$ = E$_1$
+     ..
+     x$_n$ = E$_n$]] p d =
+  (p[x$_1$ = d + 1
+     ..
+     x$_n$ = d + n], d + n) //augmentation of p and d
+\end{lstlisting}
+
+note: if definition body is a single varialb ename fou din the same letrec:
+\begin{lstlisting}
+letrec x = y
+       ..
+       y = Cons 1 y
+\end{lstlisting}
+then update will perform update 1 hole with another; avoid this by removing definition of x and replaceing with y at an earlier stage of compiler (elimination of  redundant lets where rhs of let is a single variable by replacing occurences of lhs variable with rhs variable in body of let)
+
+\subsection{GC of CAFSs}
+compiled version of code:
+\begin{itemize}
+\item need explicit list of references of directly/indirectly used CAFs since it is not apparent in compiled instructions
+\item use of expicit list of CAFs (info given to GC implementation) that each supercombinator uses for marking (signal object is reachable from a root and cannot be eligeable for garbage collection) in GC sweeps
+\end{itemize}
+
+supercombinator with $\geq$ 1 argument(2) can't grow in size $\implies$ no need for GC
+
+unreduced CAF marking $\implies$ mark its associated list of CAFs
+
+reduced CAF marking $\implies$ like any other heap data structure for marking
+
+supercombinator with $\geq$ 1 argument(s) marking $\implies$ mark all CAFs in its associated list
+
+\subsection{Options for Compiling CAFs}
+not compile:
+\begin{itemize}
+\item leave in graph form
+\item never copied
+\item shared
+\item program may be a mixture of compiled code and graph
+\end{itemize}
+
+compile:
+\begin{itemize}
+\item supercombinator with 0 arguments
+\item compile to G-code: code that will instantiate their graph when executed
+\item instantiation will need to overwrite some code for sharing so that further use will not require repeated copied of it; possible impl:
+  \begin{itemize}
+  \item code alloc. a graph node representing a function (a pointer to compiled code)
+  \item execution of compiled code updates the graph node (1 per supercombinator; not in read only memory since it needs to be updated when code is executed) associated with it with the result; the result is sharable with other users through the shared graph node
+  \end{itemize}
+\end{itemize}
+
+\subsection{Builtin Function}
+
+translation to G-code sequence:
+\begin{itemize}
+\item eval to WHNF whenever possible to eliminate duplicate work
+\item UNWIND vs. RETURN instruction
+\item PUSH
+\item EVAL
+\item UPDATE
+\item POP
+\item SELSUM$_{r,i}$
+\item SELPRODUCT$_{r,i}$
+\item JUMP
+\item JFALSE
+\item CASEJUMP$_{StructTag, n}$
+\end{itemize}
+
+\section{FP: Abstract Machine Model Describing G-Code}
+
+machine state: \verb|<S,G,C,D>|\\
+S: stack\\
+G: graph\\
+C: code sequence (G-code)\\
+D: dump / stack of \verb|(stack, code sequence)|
+
+operation of G-machine $\iff$ state transition, eg:
+
+\begin{lstlisting}
+<S, G, PushInt i: C, D $\Rightarrow$
+  <n:S, G[n=Int i], C, D>
+
+<n: S, G[n = Ap n$_1$ n$_2$], Eval: C, D> $\Rightarrow$
+  <n:[], G[n = Ap n$_1$ n$_2$], Unwind:[], (S,C): D>
+
+//will eventually update the CAF function node with result of reduction
+<n: S, G[n = Fun 0 C'], Eval: C, D> $\Rightarrow$
+  <n:[], G[n = Fun 0 C'], C':[], (S,c): D>
+
+<n: S, G[n = Int i], Eval: C, D> $\Rightarrow$
+  <n: S, G[n = Int i], C, D>
+
+where:
+
+n: a unique new name
+\end{lstlisting}
+
+non-existent transition $\implies$ runtime error
+
+cases for transition of Unwind:
+
+item on top of stack:
+\begin{itemize}
+\item Cons or Int node $\implies$ WHNF; only item in current stack; restore saved stack and code from dump; put result on top of the restored stack
+\item pointer to application node $\implies$ push head of application on stack; repeat Unwind instruction
+\item a function with enough arguments on stack $\implies$ rearrange stack; execute code for the function
+\item a function without enough arguments $\implies$ expression under eval is in WHNF; restore saved stack and code from dump; put result of eval on top of restored stack
+\end{itemize}
+
+\subsection{Printing Mechanism}
+
+need an evaluator invocation mechanism that reduce expressions to WHNF and also print them
+
+add an additional compone tin G-machine state, O
+
+add a Print instruction: print element on top of the stack
+
 \section{FP: Optimizations to G Machine}
 
 \section{FP: Generalized Tail Call Optimization}
