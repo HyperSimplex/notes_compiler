@@ -646,7 +646,7 @@ type TypeFormal = Type;
 type TypeReturn = Type;
 \end{verbatim}
   
-  \subsection{Translate interface}
+\subsection{Translate interface}
 
 \begin{verbatim}
 module Tr {
@@ -3290,7 +3290,7 @@ fn try_remove_block(L: block) {
   \vfill\null
   \columnbreak
 
-  \section{FP: Lambda Calculus}
+  \section{FP: Lambda Calculus \cite{peyton1987}}
 
   \subsection{Denotionaal Semantics}
   
@@ -4322,11 +4322,256 @@ note h, u, us, us' are new unique variables introduced
 
 \section{FP: Type Checking}
 
+goals of type inference:
+\begin{itemize}
+\item check if program is well typed
+\item determine type of any expression in the program
+\end{itemize}
+
 kinds of polymorphism:
 \begin{itemize}
-\item ad-hoc
-\item parametric
+\item ad-hoc: impl. conditioned on input types
+\item parametric, eg: \verb|forall types a, [a] -> num|
 \end{itemize}
+
+object kinds wrt. expressions with schematic (generic) type variables:
+\begin{itemize}
+\item polymorphic: may take on different types at different occurences
+\item monomorphic: no schematic/generic type variables
+\end{itemize}
+
+intermediate language for constructing a type checker: lambda calculus; do this before transform to supercombinator program or lambda lifting; do dependency analysis before this
+\begin{itemize}
+\item variables
+\item lambda abstractions
+\item applications
+\item simultaneous definitions / let-expressions
+\item mutual recursion / letrec-expressions
+\end{itemize}
+
+note: pattern matching function definitions replaced by case functions with type-forming operations; alternatively impl: typchecking can still be done when pattern matches are present
+
+% \subsection{dealing with infinite types}
+% if \verb|T1 = .. T1 ..| occurs, then system of equation cannot be solved and expression is ill-typed $\implies$ fixed-point Y is ill-typed; avoid these
+
+deduction of form of types that an expression can take via 2 routes:
+\begin{itemize}
+\item type required by the surrounding context (deduction from outside)
+\item type object can take (deduction from inside)
+\end{itemize}
+two type expressions from the above deductions must match for the expression to be well typed
+
+\subsection{Finding Types}
+
+analyze type structure of an expression using an upsidedown tree:
+\begin{itemize}
+\item variables and constants at the top
+\item internal nodes: constructors applied to form expressions
+\item each node corresponds to a subexpression and has a type
+\end{itemize}
+
+eg:
+\begin{lstlisting}
+\x\y\z.x z (y z)
+
+$\Updownarrow$
+
+x::T0 z::T1   y::T2 z::T3
+-----------@  -----------@
+    T4            T5
+    ---------------@
+           T6
+           -- \x.\y.\z.
+           T7
+
+T0 = T1 -> T4
+T2 = T3 -> T5
+T4 = T5 -> T6
+T7 = T0 -> T2 -> T1 -> T6
+T1 = T3
+---
+T0 = T1 -> T5 -> T6
+T2 = T1 -> T5
+T4 = T5 -> T6
+T7 = (T1 -> T5 -> T6) -> (T1 -> T5) -> T1 -> T6
+\end{lstlisting}
+         
+rules:
+\begin{itemize}
+\item all occurences of a $\lambda$-bound variable have the same type
+\item 2 compound types are equivalent $\implies$ their constituent parts are equivalent and formed wtih same construction:
+\begin{lstlisting}
+T1 -> T2 = T1' -> T2' $\implies$ T1 = T1' and T2 = T2'
+\end{lstlisting}
+\item \verb|(f a) :: V where a::A, f::A -> V|
+\item in order for expression to be well typed, it has to work in any surrounding context
+\end{itemize}
+
+occurences of defined names in expression body are instances of the type of the corresponding RHS of the defined names. Eg, instantiate variables in types of those RHS with new distinct variables during inference.
+
+an approach for letrec (mutually recursive expressions):
+\begin{itemize}
+\item during definitions of defined variables, all occurences of defined variables must share same type of RHS of their definitions
+\item after definitions (during use), each occurence of defined variables are polymorphic and can be instantiated differently to fit constraints of local contexts
+\end{itemize}
+
+\vfill\null
+\columnbreak
+
+\section{FP: Type Checker Construction}
+
+\subsection{Definitions}
+
+\begin{verbatim}
+subst := tvname -> type_exp
+
+scomp :: subst -> subst -> subst
+scomp sub2 sub1 = \tvn -> sub_type sub2 (sub1 tvn)
+scomp sub2 sub1 tvn = sub_type sub2 (sub1 tvn)
+property:
+sub_type (scomp phi psi) =
+  (sub_type phi) . (sub_type psi)
+
+type_exp := TVAR tvname | TCONS [char] [type_exp]
+
+sub_type :: subst -> type_exp -> type_exp
+sub_type phi (TVAR tvn) = phi tvn
+sub_type phi (TCONS tcn ts) =
+  TCONS tcn (map (sub_type phi) ts)
+
+id_subst :: subst
+id_subst tvn = TVAR tvn
+property:
+sub_type id_subst t = t
+\end{verbatim}
+
+\subsubsection{Delta Substitution}
+delta substitution: a substitution that affects only one variable:
+
+\begin{verbatim}
+delta :: tvname -> type_exp -> subst
+delta tvn t = \tvn' -> = t, if tvn = tvn'
+                       = TVAR tvn', otherwise
+
+delta tvn t tvn' = t, if tvn = tvn'
+                 = TVAR tvn'
+\end{verbatim}
+
+\subsubsection{Fixed Point}
+
+a type expression t is a fixed point of a substitution phi if:
+\begin{verbatim}
+sub_type phi t = t
+\end{verbatim}
+
+\verb|t := (TVAR x)| is a fixed point of substitution phi $\implies$\\
+x is unmoved by phi
+
+\subsubsection{Idempotent Substitution}
+a substitution, phi, is idempotent if:
+\verb|scomp phi phi = phi| or 
+\verb|(sub_type phi) . (sub_type phi) = sub_type phi|
+
+fully worked out substitution is idempotent (unless there is circularity which is an error)
+
+phi is idempotent and phi moves tvn $\implies$\\
+\verb|sub_type phi (VAR tvn)| is a fixed point of phi and cannot contain tvn
+
+\subsection{Unification}
+
+given an equation: \verb|t1 = t2|, solve the equation by finding a subsitution phi such that: \verb|sub_type phi t1 = sub_type phi t2|
+
+then, phi is a unifier of t1 and t2; extend this to a set of equations
+
+idea: find a maximally general solution substitution phi, then find \verb|psi = rho scomp phi| where psi is an extension of phi (phi is no less general than psi)
+
+\vfill\null
+\columnbreak
+
+\subsection{Robinson's Unification Algo.}
+given a substitution, phi, that already solves a set of equations, $t_1=t_1^{\prime}, .., t_n=t_n^{\prime}$, extend the system to add one additional equation $t_{n+1}=t_{n+1}^{\prime}$. Extend idempotent substituion phi by phi' where phi' is an idempotent unifier of $t_{n+1}=t_{n+1}^{\prime}$ by returning (Ok phi'). If there is no extension of phi which unifies $t_{n+1}=t_{n+1}^{\prime}$, return Failure.
+
+\begin{verbatim}
+unify :: subst -> (fype_expr, type_exp)
+  -> Reply subst
+unify phi ((TVAR tvn),t)
+  = extend phi tvn phit, if phitvn = TVAR tvn
+  = unify phi (phitvn,phit) //guaranteed tvn cannot
+                            //occur in phitvn or phit
+  where
+    phitvn = phi tvn
+    phit = sub_type phi t
+
+unify phi ((TCONS tcn ts),(TVAR tvn))
+  = unify phi ((TVAR tvn),(TCNS tcn ts))
+
+unify phi ((TCONS tcn ts),(TCONS tcn' ts'))
+  = unifyi phi (ts zip ts'), if tcn = tcn'
+  = Failure
+
+Reply a = Ok a | Failure
+
+unifyi :: subst -> [(fype_exp, fype_exp)]
+  -> Reply subst
+unifyi phi eqns = foldr unify' (Ok phi) eqns
+  where
+    unify' eqn (Ok phi) = unify phi eqn
+    unify' eqn Failure = Failure
+
+type_exp := TVAR tvname | TCONS [char] [type_exp]
+
+extend :: subst -> tvname -> type_expr
+  -> Reply subst
+extend phi tvn t = Ok phi, if t = TVAR tvn
+                 = Failure, if tvn in tvars_in t
+                 = Ok ((delta tvn t) scomp phi)
+
+subst := tvname -> type_exp
+
+delta :: tvname -> type_exp -> subst
+delta tvn t tvn' = t, if tvn = tvn'
+                 = TVAR tvn'
+
+scomp :: subst -> subst -> subst
+scomp sub2 sub1 tvn = sub_type sub2 (sub1 tvn)
+
+sub_type :: subst -> type_exp -> type_exp
+sub_type phi (TVAR tvn) = phi tvn
+sub_type phi (TCONS tcn ts) =
+  TCONS tcn (map (sub_type phi) ts)
+
+tvars_in ::type_exp -> [tvname]
+tvars_in t = tvars_in' t []
+  where
+    tvars_in' (TVAR x) l = x:l
+    tvars_in' (TCONS y ts) l =
+      foldr tvars_in' l ts
+\end{verbatim}
+
+\vfill\null
+\columnbreak
+
+\subsection{Tracking Types During Type Checking}
+TODO
+
+\subsubsection{Occurences}
+
+\subsubsection{Variables}
+
+\subsection{An Impl.}
+TODO
+
+\subsubsection{type checking lists of expr}
+
+\subsubsection{type checking variables}
+
+\subsubsection{type checking application}
+
+\subsubsection{type checking lambda abstraction}
+
+\subsubsection{type checking let-expressions}
+
+\subsubsection{type checking letrec-expressions}
 
 \vfill\null
 \columnbreak
@@ -5276,23 +5521,795 @@ add an additional compone tin G-machine state, O
 
 add a Print instruction: print element on top of the stack
 
+eg:
+
+\begin{lstlisting}
+<O, n:S, G[n = Int i], Print:C, D> $\Rightarrow$
+  <O:i, S, G[n = Int i], C, D>
+
+<O, n:S, G[n = Cons n$_1$ n$_2$], Print:C, D> $\Rightarrow$
+  <O, n$_1$:n$_2$  :S, G, Eval:Print:Eval:Print:C, D>
+
+<O, n:S, G[expr], i:C, D> where i $\neq$ Print $\Rightarrow$
+  O is unchanged
+\end{lstlisting}
+
+\verb|Begin| instruction initializes the G-machine:
+
+\begin{lstlisting}
+<O, S, G, Begin:C, D> $\Rightarrow$ <O, [], [], C, []>
+//note: empty stack, graph, dump
+//and runs rest of the code C
+\end{lstlisting}
+
+\subsection{Impl. of G-code}
+compute memory space required by each supercombinator and insert instructions to check for sufficient memory (heap) at beginning of function (do at compile with a simulated model of stack)
+
+simulated stack expected to be empty at the end of the execution of a supercombinator
+
+eval may cause arbitrary amount of computation to occur
+
+issue: possible GC interruption disturb simulated stack and heap
+
+possible solution for when flow of control can be broken
+\begin{itemize}
+\item segments of code between Evals has its own code to check for heap exhaustion $\implies$ simulated stack and heap pointers/offsets calculated relative to EP(stack pointer) and HP(heap pointer) at beginning of each code segment (not necessarily start of each supercombinator)
+\item before Eval is called, simulated stack is flushed oto the real stack
+\item also apply this separate code segment technique to code with JUmp instructions:
+  \begin{itemize}
+  \item different routes due to different branches may have different amounts of heap allocated and simulated stacks are different
+  \item simulated stack flushed to real stack before Jump
+  \end{itemize}
+\end{itemize}
+
+dealing with graphs via an interface to be used from G-code execution mechanism; types of graph operation:
+\begin{itemize}
+\item node specific operation, when node being evaluated is known to be of that type
+\item generic operation: eval on unknown node; usually need case analysis on node type $\implies$ more expensive
+\end{itemize}
+
+tag case analysis:
+\begin{itemize}
+\item tag in a cell points to a table of code entry points (one entry point per generic operation)
+\item different node type associates with different entry table
+\item possible use of cell/boxed values to achieve a unifrom case analysis for different typed nodes
+\item use of indireciton node instead of copying root of result of reduction into root of the redex
+\item Unwind G-code instruction:
+  \begin{itemize}
+  \item WHNF: return to caller
+  \item function with enough args: rearrange stack to prep for actual invocation of function's code
+  \end{itemize}
+\item Unwind on application call: push head of cell on stack and Unwind again
+\item Eval code:
+  \begin{itemize}
+  \item code generated for Eval G-code instr., then
+  \item call eval code in an entry of an entry table associte with the node tpye via a subroutine jump instr.
+  \item cell type:
+    \begin{itemize}
+    \item WHNF (eg: primitive/function cell/ Cons cell): return from subroutine
+    \item App cell/node: push current stack on dump (system stack) and call Unwind on application
+    \end{itemize}
+  \end{itemize}
+\end{itemize}
+
+per supercombinator:
+\begin{itemize}
+\item Globstart: Unwind code, GC code, entry table, function node via instr. to alloc. it at start of function code, overflow checking code preceding target code for function body
+\item target functinon code
+\end{itemize}
+
+Begin: initialize stack and heap for entire system and other system specific tasks
+
+End: terminate execution of whole program
+
 \vfill\null
 \columnbreak
 
 \section{FP: Optimizations to G Machine}
+
+avoid heap allocation / avoid huilding graphs
+
+try use cheaper stack to cut allocation
+
+laziness preservation for R compilation scheme (code generation for: applying a supercombinator to its arguments)
+
+case analysis for each kind of expression for R compilation scheme:
+\begin{lstlisting}
+R[[ i ]] p d =
+  PushInt i;
+  Update (d+1);
+  Pop d;
+  Return //not Unwind since Int can't be applied
+
+R[[ f ]] p d =
+  PushGlobal f;
+  Eval; //needed for the case of reduction of CAF
+  Update (d+1);
+  Pop d;
+  Unwind
+
+//for the case of body being a single variable
+//  load value onto stack; eval it;
+//  update result of reduction into root of redex
+R[[ x ]] p d =
+  Push (d - p x);
+  Eval;
+  Update (d+1);
+  Pop d;
+  Unwind
+
+R[[ E$_1$ E$_2$ ]] p d =
+  C[[ E$_1$ E$_2$ ]] p d;
+  Update (d+1);
+  Pop d;
+  Unwind
+
+R[[ let x = E$_x$ in E ]] p d =
+  C[[ E$_x$ ]] p d;
+  R[[ E ]] p[x = d+1] (d+1)
+
+R[[ letrec D in E ]] p d =
+  CLetrec[[ D ]] p' d';
+  R[[ E ]] p' d'
+  where (p'd') = Xr[[ D ]] p d
+\end{lstlisting}
+
+direction execution of builtin functions instead of building a graph and immediately unwinding it
+
+optimize code for special cases for \verb|C[[ E ]] p d; Eval| sequence:
+
+\verb|E[[ E ]] p d| generate G-code which eval.(equivalent C-eval sequence) E to WHNF and leave result on top of the stack (replace occurences of C-eval sequence in R scheme with E compilation scheme)
+
+RS sceheme, ES scheme: enable E scheme optimization
+
+\subsection{$\eta$-reduction and lambda lifting}
+\begin{itemize}
+\item may incur cost during code generation
+\item perform only if it eliminates an entire function definition
+\item eg: \verb|(f E1 E2 ..)| if \verb|f| is unknown such as ones passed into function as argument, then optimzed code generation is less likely
+\end{itemize}
+
+\subsection{Fatbar and Fail}
+optimize by never producitng a Failure value and replace it with instructions
+
+\subsection{Evaluating arguments}
+
+if function is strict in an argument, then it's safe to use E scheme and avoid building a graph before eval it
+
+partial application / supercombinator that return a function: eval provided arguments straight away instead of building graphs
+
+\subsection{Global Structness Info}
+
+using strictness analysis:
+\begin{itemize}
+\item annotate application of functions that are strict wrt. parameters
+\item annotate definitions and application nodes
+\end{itemize}
+
+eg: an infix op \verb|!| denoting strict applciation and strict let expression:
+
+\verb|$F ! x = ..| where F is strict in x
+
+acheives similar effect as call by value
+
+avoid Eval to reduce cost (in G-machine instr. set):
+\begin{itemize}
+\item avoid re-evaluation in function body:\\
+  track context info about whether item on a stack has been evaluated or not (eg: stack position -> Bool)\\
+  also modify compilation schemes to return modified env. in addition to the generated code as before
+\item supercombinator begins with code to Eval for each argument that the function is strict on
+\item no-eval version of the function called after strict arguments are eval'd in the supercombinator 
+\end{itemize}
+
+avoid repeated unwinding:
+\begin{itemize}
+\item add info on arugments' evaluation status (WHNF or not)\\
+  eval function if it is passed as a strict argument instead of deferring when function is applied
+\item add a tag indicating WHNF for application node $\implies$ Eval entry for AP-WHNF's entry table is an immediate return instead of Unwind and finding function at tip of spine graph has too few arguments (eg: in WHNF) before returning;\\
+  modify C scheme for compiling application of a function to too few arguments
+\item all vertebrae below the root of redex at completion of Unwind instruction are then in WHNF because each represents application of a function to too few number of arguments;\\
+  tags on these vertebrae can be changed to AP-WHNF as they are rearranged / removed from the stack as Unwind completes
+\end{itemize}
+
+\subsection{Eager Evaluation}
+\begin{itemize}
+\item avoid creating cells when evaluating expressions
+\item specialize C scheme to directly use code instead of creating cells
+\item if arguments is known to be eval'd already, then avoid extr cell creation and use direct code for eager eval $\implies$ performs operations that may not be used (graph created with C scheme may be discarded)\\
+  $\implies$ this is still safe since the arguments are for sure already evaluated so it will terminate\\
+  $\implies$ still usually faster than allocating cells on the heap
+\item propagate this info. upward via environment which records items on stack being already evaluated or not
+\end{itemize}
+
+\subsection{Boxing/Unboxing on Primitives}
+temporary/transient cells and bitmasking instr. may be used in boxing/unboxing in between other operations that are costly
+
+instructions to:
+\begin{itemize}
+\item support operations on naked values
+\item fox and unbox values on top of stack (cells in heap)
+\item modify associated compilation scheme to support this
+\end{itemize}
+
+need modification for GC system to distinguish box vs. unboxed items on stack
+\begin{itemize}
+\item eg: can use an additional stack for only unboxed values and instructions are aware which stacks to use based on unboxed/voxed form of tiem
+\end{itemize}
+
+\subsection{Peephole Optimization}
+
+sits in between G-code compiler and code generator
+
+replace short consecutive sequence of G-code instr. with more optimal sequence (instr. compression)
+
+eg:
+
+\verb|MKAP n|, \verb|SLIDE n|
+
+if f is a builtin/supercombinator with $\geq$ 1 arguments: eliminate Eval instruction:
+\begin{lstlisting}
+// if f is not a CAF
+PushGlobal f; Eval $\Rightarrow$ PushGlobal F 
+\end{lstlisting}
+
+build root of result directly on top of root of redex (to avoid allocating cell for result and copying result to root of redex)
+
+use an instruction to use items on stack to build app node on top of root of redex
+$\implies$ modify some compilation schemes for this:
+\begin{itemize}
+\item \verb|RS[[ f ]] p d n|
+\item \verb|RS[[ x ]]|
+\item \verb|CLetrec Schemes|
+\end{itemize}
+
+\subsection{Unpacking Structred Objects}
+eg: present in lets compiled from case expressions
+
+use a unpack instruction, eg: \verb|UnpackSum k|: unpacks top element on stack into k components (place them on top of the stack)
+
+eg:
+
+\begin{lstlisting}
+let v$_1$ = SelSUm$_{k,1}$ v
+    ..
+    v$_k$ = SelSUm$_{k,k}$ v
+in E
+
+$\Updownarrow$
+
+Push (d - p v); SelSum$_{k,1}$;
+..
+Push (d + k - 1 - p v); SelSum$_{k,k}$;
+
+$\Downarrow$
+
+Push (d - p v);
+UnpackSum k;
+\end{lstlisting}
+
+Pattern Matching in a function is not compiled to:
+\begin{enumerate}
+\item code sequence to eval arg.
+\item multiway jump based on structure tag of the argument
+\item unpack instruction (take strucure apart and puts components on the stack)
+\item code sequence to eval rhs. of the function (eg: free variables and components of structure in the stack)
+\end{enumerate}
 
 \vfill\null
 \columnbreak
 
 \section{FP: Generalized Tail Call Optimization}
 
+squeeze out items on the stack associated with previous function before calling the tail function $\implies$ enable eliding extra instruction and space on stack needed for the function call
+
+eg:
+
+\begin{lstlisting}
+C[[ E$_3$ ]] p d;
+C[[ E$_2$ ]] p (d+1);
+C[[ E$_1$ ]] p (d+2);
+PushGLobal W;
+Squeeze 4 2; //rid of F's 2nd and 1st args on stack
+//at runtime, do case analysis on
+//function on top of the stack
+Dispatch 3 
+\end{lstlisting}
+
+Dispatch instruction is behaviourly equivalent as doing:
+\begin{enumerate}
+\item construct spine in heap from ribs on the stack
+\item update root of the redex (bottom of current context) using the constructed spine
+\item Unwind W
+\end{enumerate}
+
+case analysis of tail call:
+\begin{itemize}
+\item W is an Application node: in general, number of args W takes is unknown\\
+  optimize construction of spine: do it on the stack instead of heap\\
+  perform 1st part of Unwind as we construct the spine\\
+
+  transition rule for Dispatch:
+
+\begin{lstlisting}
+<f:n$_1$:n$_2$:..:n$_k$:r:S,
+  G[f = Ap m$_1$ m$_2$], Dispatch k:[], D>
+$\Rightarrow$
+<f:v$_1$:v$_2$:..:v$_{k-1}$:r:S,
+  G[v$_1$=Ap f n$_1$;
+    v$_i$ = Ap v$_{i-1}$ n$_i$, $i\in(1,k)$;
+    r = Ap v$_{k-1}$ n$_k$],
+  Unwind:[], D>
+\end{lstlisting}
+
+then, proceed to do as usual:
+\begin{itemize}
+\item construct spine of body of \verb|$F|
+\item update root of \verb|$F_redex|
+\item Unwind
+\end{itemize}
+
+\item W is a supercombinator and a CAP (0 args):
+  Dispatch's behaviour same as if W is an application node (previous case)
+
+\item W has exactly the number of args as the function requires: enter the code for W:
+\begin{lstlisting}
+<f: S, G[f = Fun k C], Dispatch k:[], D> $\Rightarrow$
+  <S, G, C, D>  
+\end{lstlisting}
+
+entry into code for the function after arity check
+
+\item W: number of provided args $\geq$ the arity of function parameters
+
+  partial reduction of body of \verb|$F|: part of body of \verb|$F| becomes next redex
+
+  construct a new context where W will execute in:
+  \begin{itemize}
+  \item W's args placed on top of the stack
+  \item root of W-redex (placeholder hole to be later filled with the result of reduction of W) pointed to by an item in the stack below W's args
+  \item construct top partial spine of the body of \verb|$F|
+  \end{itemize}
+
+\item W: number of available args $\leq$ number of parameters function requires
+
+  body of \verb|$F| is then in WHNF
+
+  need to update root of \verb|$F-redex|:
+
+  \begin{itemize}
+
+    \item construct spine in heap as in the case of an application node
+
+    \item Dispatch should test depth of the stack to see if there are enough arguments after the spine is constructed and root of \verb|$F-redex| is updated:
+
+      not enough args for W to reduce $\implies$  eval is complete; Dispatch initiates a Return
+
+      enough args for W to reduce $\implies$ Dispatch rearranges the stack to prepare the call to W and finally enter W
+    \end{itemize}
+
+    \begin{lstlisting}
+//eg, assuming W takes 4 arguments
+stack:
+---
+root of W-redex -> v$_4$
+root of F-redex -> r
+n$_3$:E$_3$
+n$_2$:E$_3$
+n$_1$:E$_1$
+f: W
+..
+
+//after arrangement by Dispatch
+root of W-redex
+
+stack:
+---
+root of W-redex -> v$_4$
+n$_4$:E$_4$ -> n$_4$
+n$_3$:E$_3$ -> n$_3$
+n$_2$:E$_2$ -> n$_2$
+n$_1$:E$_1$ -> n$_1$
+    \end{lstlisting}
+    
+\begin{tblr}{ccc}
+\begin{tikzpicture}
+  \node(v4) {v$_4$:@};
+  \node(a) [below left of=v4]{r:@};
+  \node(b) [below right of=v4]{n$_4$:E$_4$};
+  \draw (v4) -- (a);
+  \draw (v4) -- (b);
+\end{tikzpicture} &
+$\rightarrow$ &
+\begin{tikzpicture}
+  \node(v4) {v$_4$:@};
+  \node(r) [below left of=v4]{r:@};
+  \node(v2) [below left of=r]{v$_2$:@};
+  \node(v1) [below left of=v2]{v$_1$:@};
+  \node(f) [below left of=v1]{f:W};
+  \node(n4) [below right of=v4]{n$_4$:E$_4$};
+  \node(n3) [below right of=r]{n$_3$:E$_3$};
+  \node(n2) [below right of=v2]{n$_2$:E$_2$};
+  \node(n1) [below right of=v1]{n$_1$:E$_1$};
+  \draw (v4) -- (r);
+  \draw (r) -- (v2);
+  \draw (v2) -- (v1);
+  \draw (v1) -- (f);
+  \draw (v4) -- (n4);
+  \draw (r) -- (n3);
+  \draw (v2) -- (n2);
+  \draw (v1) -- (n1);
+\end{tikzpicture}
+\end{tblr}
+
+\end{itemize}
+
+\subsection{transition rule for Dispatch when not enough arguments for function to reduce}
+
+\begin{lstlisting}
+<f:n$_1$:n$_2$:..:n$_k$:r:v$_{k+1}$:..:v$_d$:[],
+  G[f = Fun a C], Dispatch k:[], (S, C'):D>
+{k < d < a }
+$\Rightarrow$
+<v$_d$:S,
+  G[v$_1$ = AP-WHNF f n$_1$
+    v$_i$ = AP-WHNF v$_{i-1}$ n$_i$ (1<i<k)
+    r = AP-WHNF v$_{k-1}$ n$_k$],
+  C',
+  D>  
+
+where:
+
+k: argument to dispatch
+d: # of args available
+a: arity of function on top of the stack
+\end{lstlisting}
+
+note:
+\begin{itemize}
+\item eval complete by making a return to the caller
+\item vertebrae $v_i$s are in WHNF, thus construct them as type AP-WHNF nodes
+\end{itemize}
+
+\subsection{transition rule for the case of enough args. for the function to reduce}
+
+rearrangement of stack happens
+
+followed by jump to code of the function
+
+\begin{lstlisting}
+<f:n$_1$:..:n$_k$:r:v$_{k+1}$:..:v$_a$:S,
+  G[f = Fun a C
+    v$_{k+1}$ = Ap r n$_{k+1}$
+    v$_i$ = Ap v$_{i-1}$ n$_i$, (k+1 < i $\leq$ a)],
+  Dispatch k: [],
+  D>
+{k < a}
+$\Rightarrow$
+<n$_1$:..:n$_{k+1}$:..:n$_a$:v$_a$:S,
+  G[v$_1$ = AP-WHNF f n$_1$
+    v$_i$ = AP-WHNF v$_{i-1}$ n$_i$, (1<i<k)
+    r = AP-WHNF v$_{k-1}$ n$_k$],
+  C,
+  D>
+\end{lstlisting}
+
+
+\subsection{Compilation using Dispatch}
+
+modifications to RS scheme:
+
+\begin{lstlisting}
+RS[[ x ]] p d n =
+  Push (d - p x);
+  Squeeze (n+1) (d-n);
+  Dispatch n
+
+RS[[ f ]] p d n =
+  PushGlobal f;
+  Squeeze (n+1) (d-n);
+  Dispatch n
+\end{lstlisting}
+
+\subsubsection{function is known at compile time}
+perform case analysis at compile time to generate code instead of analysis at runtime
+
+eg:
+
+\begin{lstlisting}
+PushGlobal $\textdollar$H;
+Squeeze p q;
+Dispatch k
+
+where $\textdollar$H takes exactly k args
+
+$\Rightarrow$
+
+tail call case and generate code to jump to $\textdollar$H's code
+(after arity check and stack rearrangement)
+\end{lstlisting}
+
+
+eg:
+\begin{lstlisting}
+PushGlobal $\textdollar$Cons;
+Squeeze 3 q;
+Dispatch 2;
+$\Rightarrow$
+Cons;
+Update (q+1);
+Pop q;
+Return;
+\end{lstlisting}
+
+\subsubsection{other case}
+
+\begin{lstlisting}
+Push n;
+Squeeze p q;
+Dispatch k;
+\end{lstlisting}
+
+perform case analysis at runtime using G-code code generation using a Dispatch entry to each tag's entry table
+
+eg:
+\begin{lstlisting}
+  moval 3, r2 //k parsed to Dispatch code via r2
+  movl (%EP)+, r0 //pop function into r0
+  movl r0, r1 //move tag into r1
+  //do case analysis jump using offset to
+  //Dispatch entry of entry table
+  jmp * O_Dispatch(r1) 
+\end{lstlisting}
+
+\subsection{Optimizing E scheme}
+
+apply similar optimization in RS scheme to ES scheme
+
+allocate a hole to receive the result, then build ribs using ES scheme and push them on the stack
+
+\begin{lstlisting}
+E[[ E$_1$ E$_2$ ]] p d =
+  Alloc 1;
+  ES[[ E$_1$ E$_2$ ]] p d 0;
+
+ES[[ x ]] p d n =
+  Push (d - p x);
+  Call n;
+
+ES[[ f ]] p d n -
+  PushGlobal f;
+  Call n;
+
+<f:n$_1$:..:n$_k$:r:S, G, Call k: C, D>
+$\Rightarrow$
+<f:n$_1$:..:n$_k$:r:[], G, Dispatch k: [], (S,C): D>
+\end{lstlisting}
+
+Call is like Dispatch except stack and code pointer are saved to the dump
+
+
+\subsection{Comparison to Other Environment Based Implementations}
+
+typical env. based impl:
+\begin{itemize}
+\item eval body of function in an environment (container that captures variable values in scope) where formal parameters are bound to their values
+\item if the result of eval is a function-like object, then we return a closure (function's code pointer + environment in which the function will be executed in)
+\item environment implementation: linked list or tuple consisting of only used values of variables that occur free in the body of the function
+\end{itemize}
+
+similarity to eng.cased impl:
+\begin{itemize}
+\item equivalent in G-machine: a graph with supercombinator aplpied to too few args.
+\item extra args. produced from lambda lifting algo. to a function
+\item execution in G-machine is based on stack (args found on stack) whereas env.-based impl. may access free variables (not present in supercombinator) in its environment
+\item args passed to a function placed on stack before calling 
+\end{itemize}
+
+differences to env.-based impl.:
+\begin{itemize}
+\item enable laziness in G-machine by writing the spine into the heap at ttimes vs. always keeping it in stack in some env.-based impl.
+\item G-machine as an effective impl. of graph reduction: support parallel execution naturally via graph reduction model
+\end{itemize}
+
 \vfill\null
 \columnbreak
 
 \section{FP: Parallel Execution}
 
-  \vfill\null
-  \columnbreak
+parallel execution of functional program via concurrent graph reductions
+
+good parallel performance: need algorithmic parallelism by construction
+
+parallelism in functional language can be dynamic; no static division and manual sync. required by programmer; smaller unit of parallelism; dynamically adaptable
+
+synchronization between $>1$ reductions done via the shared graph: update/reduction make known by overwriting root of redex with result of reduction (no special synchronization needed)
+
+no extra language constructs needed for parallel programs: result independent of scheduling of reductions (may vary in efficiency)
+
+graph reduction:
+\begin{itemize}
+\item reduction is a local transformation of the graph (distributed activity)
+\item graph as medium of communication
+\item state of computation $\iff$ state of the graph
+\end{itemize}
+
+\subsection{model for reduction}
+\begin{itemize}
+\item sequential impl:
+
+  pointer to root of the graph to be evaluated by evaluator
+
+  keep reducing until graph is in WHNF, then terminate
+
+\item parallel version:
+
+  $>1$ evaluator tasks work on the graph
+
+  evaluator may require value of subgraph $\implies$ generate new task to eval subgraph (sparking root node of the subgraph) autonomously; subgraph eventually expected to be in WHNF
+
+  parent blocked if there exists child subgraph that hasn't finished computation
+
+  sibling blocked if other sibling is accessing a subgraph that is also needed by the current sibling
+
+  atomic write on root of redex on graph, thus no direct communication between tasks
+
+  each virtual task executed by an agent (physical processor)
+
+  task pool serviced by idling agents
+\end{itemize}
+
+generation of new tasks:
+\begin{itemize}
+\item if subgraph is known to be eventually needed (conservative parallelism)
+\item speculative that subgraph is possible eventually needed
+\end{itemize}
+
+builtin function applied to argument, \verb|f E|
+$\implies$ safe to parallel evaluate \verb|E| if \verb|f| will need value of the argument (f is strict in E)
+
+annotate the graph with strictness info. from strict analysis
+\begin{itemize}
+\item annotate application node that arg. is needed
+
+  \begin{tikzpicture}
+    \node(app) {@!};
+    \node(f) [below left of=app]{$\textdollar$F};
+    \node(E) [below right of=app]{E};
+    \draw (app) -- (f);
+    \draw (app) -- (E);
+  \end{tikzpicture}
+
+\item annotate supercombinator that arg. is strict
+
+  \begin{tikzpicture}
+    \node(app) {@};
+    \node(f) [below left of=app]{$\textdollar$F!};
+    \node(E) [below right of=app]{E};
+    \draw (app) -- (f);
+    \draw (app) -- (E);
+  \end{tikzpicture}
+  
+\end{itemize}
+
+need both of the above to enable maximal parallelism
+
+\subsection{speculative parallelism}
+may waste resource
+
+prioritize vital tasks over speculative ones
+
+speculative tasks may cahgen to be vital when its results are discovered to be needed (some of its subgraph tasks may also change priority to vital)
+
+speculative tasks may be stopped and discarded when result is not needed: all subtasks/sparks  need also be killed
+
+\subsection{blocking mechanism}
+
+mark node during unwinding of spine (when finding a function at the tip of the spine) to indicate nodes are currently being worked on
+
+other tasks blocked when encountering marked nodes
+
+rewinding of spine (popping of vertebrae from its stack) also removes the mark from vertebrae (after reduction overwrites its result) $\implies$ task blocked by affected nodes can proceed (and will see updated redex performed by earlier task)
+
+\begin{tikzpicture}
+  \node(a) {@};
+  \node(b) [below left of=a]{@};
+  \node(plus) [below left of=b]{+};
+  \node(c) [below right of=b]{@ t1};
+  \node(d) [below right of=a]{@ t2};
+  \node(f) [below left of=c]{f:@};
+  \node(g) [below left of=f]{g};
+  \node(six) [below right of=f]{6};
+  \node(three) [below right of=c]{3};
+  \node(four) [below right of=d]{4};
+  \draw (a) -- (b);
+  \draw (b) -- (plus);
+  \draw (b) -- (c);
+  \draw (c) -- (f);
+  \draw (f) -- (g);
+  \draw (f) -- (six);
+  \draw (c) -- (three);
+  \draw (a) -- (d);
+  \draw (d) -- (four);
+  \draw[-] (d) to [out=270, in=345, looseness=3] (f);
+\end{tikzpicture}
+
+if task t1 unwinds and reaches f first, then task t2 may block when unwinding to f
+
+optimization:
+\begin{itemize}
+\item once a node (subgraph) is in WHNF, it will never need to be updated again $\implies$ give read-only access to $>1$ tasks concurrently (discriminate with regular application node by WHNF application node type)
+\item unwinding to a WHNF application node$\implies$ node does not need to get marked (no blocking to other tasks)
+\item example nodes in WHNF: supercombinator, number, cons cell
+\item otherwise, nodes not in WHNF $\implies$ subgraph may contain redexes and be altered; only 1 task accesses it at any time
+\end{itemize}
+
+
+runtime WHNF optimization possible even if compile-time WHNF optimization is not possible
+
+eg: (\$G E1 E2 E3)
+
+after 1st reduction at top node, the lower 2 application nodes are in WHNF $\implies$ mark these 2 nodes as WHNF when finishing reduction (as these nodes are popped off the stack)
+
+representation of task:
+\begin{itemize}
+\item store info. to restore execution of it during suspended state
+  typically in a task control block:
+  \begin{itemize}
+  \item task stack pointer
+  \item task program counter
+  \item state of task's registers
+  \end{itemize}
+\item vs. graph representation / parellel reduction model
+  \begin{itemize}
+  \item a task corresponds to a subgraph that it is evaluating (state of partially completed task encoded in the graph):
+  \item using a pointer to the root of the subgraph is theoretically sufficient to represent the task at any stage of its lifetime
+  \item suspension of a task: stop reduction; save pointer to task's root node to the task pool
+  \item resuming a task: take its pointer to root and continue reduction
+  \end{itemize}
+\end{itemize}
+
+\subsection{optimization to suspending and resuming task}
+
+uses pointer reversal to avoid unwinding spine when resuming a blocked task (avoids repeatedly unwinding spine every time a task is blocked):
+\begin{itemize}
+\item reverse only pointers in vertebrae (marked nodes) $\implies$ no other tasks will access a pointer reversed node
+\item state of a task represented by 2 pointers (fwd and backward pointers) $\implies$ suspended task resumed: forward and backward pointers point to area of graph of interest
+\item re-reversing pointers when rewinding the spine and marking vertebrae nodes as WHNF at the same time
+\end{itemize}
+
+stack based G-machine for parallel machine
+\begin{itemize}
+\item as a sequence of optimizations to graph reduction
+\item part of state held in stack
+\item at any point, info. in stack can be used to flush and update teh graph that repr. its current state
+\item keep some state of the graph in stack, over some sequence of reduction steps, as optimization
+\end{itemize}
+
+
+when a task is blocked:
+\begin{itemize}
+\item return it to the task pool for future exeuction, or
+\item asynchronously reawaken (put into task pool) the task once the blocked node has its mark removed (for efficiency)
+
+  possible impl.:
+  \begin{itemize}
+  \item add a list of tasks to be reawakened to each application node
+  \item when application node is unmarked, move reawakening taks to task pool
+  \end{itemize}
+\end{itemize}
+
+\subsection{locality and distributed memory scheme}
+
+\begin{itemize}
+\item heuristics: execute tasks and allocations in some memory unit
+\item parallelism vs. concurrency consideration
+\item program annotation
+\item heuristics to migrate tasks to memory units that are referenced  by the tasks
+\item granularity of task: worthwhile to migrate large computations in a task
+\end{itemize}
+
+\vfill\null
+\columnbreak
     
   \bibliographystyle{plain}
   \bibliography{notebook}
