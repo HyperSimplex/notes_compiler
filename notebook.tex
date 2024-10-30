@@ -3419,7 +3419,10 @@ TE[[ func ]] = Func, where Func is a built-in function
 (\f.(f 2 (+ 3 5))) (\a.\b.(+ a b))
 \end{verbatim}
 
-  \section{Structured Types}
+  \vfill\null
+  \columnbreak
+  
+  \section{FP: Structured Types}
   
   general structured type:
   \begin{align*}
@@ -4314,6 +4317,20 @@ TQ[[ [ E | ]] ++ L ]] $\equiv$ Cons TE[[ E ]] TE[[ L ]]
 note h, u, us, us' are new unique variables introduced
 \end{lstlisting}
 
+\vfill\null
+\columnbreak
+
+\section{FP: Type Checking}
+
+kinds of polymorphism:
+\begin{itemize}
+\item ad-hoc
+\item parametric
+\end{itemize}
+
+\vfill\null
+\columnbreak
+
 \section{FP: Program representatoin}
 
 give a representation of lambda expression in memory
@@ -4329,6 +4346,9 @@ data structure for discriminating different types via tag fields:
 boxed vs. unboxed representation: possibly implmented using pointer bit in field to discriminate these
 
 tag bits in field to support runtime type info
+
+\vfill\null
+\columnbreak
 
 \section{FP: Selecting Next Redex to be Reduced}
 
@@ -4395,6 +4415,9 @@ spine stack: save pointers to vertebrae; number of arguments = depth of stack
 
 rewinding the spine
 
+\vfill\null
+\columnbreak
+
 \section{FP: Reducing a Redex}
 
 as a local transformation of the graph representing the expression to be reduced
@@ -4436,7 +4459,7 @@ $\rightarrow_{\text{xform}}$ &
   \draw (app) -- (f);
   \draw (app) -- (arg);
 \end{tikzpicture}
-\end{tabular}
+\end{tblr}
 
 $\iff$
 
@@ -4550,6 +4573,8 @@ $\rightarrow$ &
 \item pro: use finite representation in storage to represent infinite object (recursive function, infinite data structure)
 \end{itemize}
 
+\vfill\null
+\columnbreak
 
 \section{FP: Supercombinator}
 
@@ -4680,6 +4705,9 @@ impl. of compiling supercombinator body can use techniques from previous section
 
 alternatively represent body of supercombinator with a sequence of code only (no environment necessary) $\implies$ instantiation of supercombinator body corresponds to running the code sequence
 
+\vfill\null
+\columnbreak
+
 \section{FP: Recursive Supercombinators}
 
 extend body of supercombinator to have general graph
@@ -4699,6 +4727,9 @@ assign lexical level numbers to variables bound in \verb|letrec|
 \item if no enclosing lambda abstraction, assign level number of 0
 \item no free variables $\implies$ use lambda lifting to remove inner lambdas and transform into supercombinator
 \end{itemize}
+
+\vfill\null
+\columnbreak
 
 \section{FP: Fully Lazy Lambda Lifting}
 
@@ -4726,7 +4757,7 @@ duing $\beta$-reduction, do not instantiate maximal free expressions of lambda a
 
 modify lambda lifting algo. such that impl. of the resulting supercombinator program is automatically fully lazy: abstract maximal free expressions when doing lambda lifting of a lambda abstraction instead of abstracting only free variables of lambda abstraction as extra parameters
 
-when maximal free expression has no free variables in it (CAF) $\impies$ give it a name and make it into a supercombinaor instead of abstracting it as an extra parameter; given name used instead of the expression
+when maximal free expression has no free variables in it (CAF) $\implies$ give it a name and make it into a supercombinaor instead of abstracting it as an extra parameter; given name used instead of the expression
 
 2 phases:
 \begin{itemize}
@@ -4735,7 +4766,7 @@ when maximal free expression has no free variables in it (CAF) $\impies$ give it
 \end{itemize}
 
 use a variable's set of free variables that the variable depends on\\
-$\impies$ float the variable outwards until the next enclosing lambda abstraction binds 1 of the variables in the variable's free variable set\\
+$\implies$ float the variable outwards until the next enclosing lambda abstraction binds 1 of the variables in the variable's free variable set\\
 $\implies$ if no free variables at all, then variable/definition floated out to top level and turned into supercombinator
 
 \subsection{Implementing Fully Lazy Lambda Lifting}
@@ -4825,6 +4856,9 @@ free expressions in E are not shared inside E since they are abstracted from a s
 in the above way, lambda lifting algo. becomes context dependent
 
 figuring out if a lambda abstraction may be shared is difficult in general, but we may give up at any time and assume partial applicatoin may be shared
+
+\vfill\null
+\columnbreak
 
 \section{FP: SK Combinators}
 
@@ -5031,7 +5065,8 @@ B$^*$ c f g x $\rightarrow$ c(f(g x))
 C' c f g x $\rightarrow$ c(f x) g
 \end{lstlisting}
 
-\section{FP: Type Checking}
+\vfill\null
+\columnbreak
 
 \section{FP: G Machine}
 
@@ -5188,6 +5223,9 @@ translation to G-code sequence:
 \item CASEJUMP$_{StructTag, n}$
 \end{itemize}
 
+\vfill\null
+\columnbreak
+
 \section{FP: Abstract Machine Model Describing G-Code}
 
 machine state: \verb|<S,G,C,D>|\\
@@ -5205,7 +5243,8 @@ operation of G-machine $\iff$ state transition, eg:
 <n: S, G[n = Ap n$_1$ n$_2$], Eval: C, D> $\Rightarrow$
   <n:[], G[n = Ap n$_1$ n$_2$], Unwind:[], (S,C): D>
 
-//will eventually update the CAF function node with result of reduction
+//will eventually update the CAF function node with
+//  result of reduction
 <n: S, G[n = Fun 0 C'], Eval: C, D> $\Rightarrow$
   <n:[], G[n = Fun 0 C'], C':[], (S,c): D>
 
@@ -5237,9 +5276,18 @@ add an additional compone tin G-machine state, O
 
 add a Print instruction: print element on top of the stack
 
+\vfill\null
+\columnbreak
+
 \section{FP: Optimizations to G Machine}
 
+\vfill\null
+\columnbreak
+
 \section{FP: Generalized Tail Call Optimization}
+
+\vfill\null
+\columnbreak
 
 \section{FP: Parallel Execution}
 
