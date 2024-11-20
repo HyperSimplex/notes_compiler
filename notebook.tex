@@ -3292,7 +3292,7 @@ fn try_remove_block(L: block) {
 
   \section{FP: Lambda Calculus \cite{peyton1987}}
 
-  \subsection{Denotionaal Semantics}
+  \subsection{Denotional Semantics}
   
   evaluation of an expression (syntactic object according to rules of language) to a mathematical object: \verb|eval[[expr]] = value|
 
@@ -4824,7 +4824,8 @@ new_bvars xs ns
 
 tcletrec1 gamma ns nbvs e FAILURE = FAILURE
 tcletrec1 gamma ns nbvs e (OK (phi, ts))
-  = tcletrec2 gamma' ns nbvs' e (unifyl phi (ts zip ts'))
+  = tcletrec2 gamma' ns nbvs' e
+      (unifyl phi (ts zip ts'))
   where ts’ = map old_bvar nbvs'
         nbvs’ = sub_te phi nbvs
         gamma’ = sub_te phi gamma
@@ -4837,14 +4838,18 @@ tcletrec2 gamma ns nbvs e (OK phi)
     where ts = map old_bvar nbvs’
           nbvs' = sub_te phi nbvs
           gamma' = sub_te phi gamma
-          gamma'' = add_decls gamma’ nsO (map fst nbvs) ts
+          gamma'' = add_decls
+                      gamma’
+                      nsO
+                      (map fst nbvs)
+                      ts
           (nsO,ns1) = split ns
 \end{verbatim}
 
 \vfill\null
 \columnbreak
 
-\section{FP: Program representatoin}
+\section{FP: Program representation}
 
 give a representation of lambda expression in memory
 
@@ -6578,10 +6583,74 @@ when a task is blocked:
 
 \vfill\null
 \columnbreak
+
+\section{FP: push/enter vs. eval/apply \cite{marlow2004}}
+
+currying in the case of unknown functions at runtime; otherwise for known function: prep args on stack/register and call function directly
+
+\subsection{push/enter}
+
+callee responsibility wrt. function arity matching; function is in control: grab top args from stack (deduce number of args from a special register / frame pointer and stack pointer)
+
+arg continuation
+
+use of stack to hold args pending for next call to a function
+
+no return address
+
+each function compiled with 2 entry points:
+\begin{itemize}
+\item fast entry: args in register plus overflow args on stack
+\item slow entry: all args on stack
+\end{itemize}
+
+argument satisfaction check (enough arguments for unknown function/call):
+\begin{itemize}
+\item fail: build a Partial Application (PAP) value, return to return address pointed to by a special register / frame pointer
+\item success: loads args into registers and jump/fall thru. to fast entry point
+\end{itemize}
+
+periods in between production and consumption, arbitrary layout in its region of strac kdata structure; GC would not know how to deal with them; one solution is to add tag to discriminate pointer, non-pointer(include size), and return address Arg continuation
+
+example impl. in G-machine
+
+\subsection{eval/apply}
+
+caller responsibility wrt.functon arity matching
+
+call continuation pushed onto the stack to hold excess args that the function canoot take
+
+RetRun: similar to Ret except return a function value (PAP / FUN) to call continuation $\implies$ re-activates a call continuation constructed earlier
+
+call continuation, of form
+\begin{lstlisting}
+($\bullet$ $a_1$ .. $a_n$)
+\end{lstlisting}
+represented by stack frame with:
+\begin{itemize}
+\item a return address (entered when function has evaluated to a value (FUN or PAP) and returns
+\item arguments $a_1$ .. $a_n$
+\end{itemize}
+
+pregeneration of a range of call continuation return addresses for 1..N arguments
+
+multiple continuations (each with N args)  may be needed if number of args is large (>N)
+
+no distinguishment between heap pointer and return address
+
+return address is info pointer, where layout (locations of pointers/non-pointers) of frame is known
+
+stack frame looks like heap object
+
+frame is a stack allocated function closure
+
+\section{Haskell Impl. Overview \cite{wiki_STG}, \cite{terei2011}}
+
+TODO
+
+\bibliographystyle{plain}
+\bibliography{notebook}
     
-  \bibliographystyle{plain}
-  \bibliography{notebook}
-    
-  \end{multicols*}
+\end{multicols*}
 
 \end {document}
