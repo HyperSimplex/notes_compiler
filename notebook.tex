@@ -87,6 +87,7 @@
   \item Modern Compiler Implementation in C \cite{appelbook}
   \item High Performace Compilers for Parallel Computing \cite{wolfebook}
   \item The implementation of Functional Programming Languages \cite{peyton1987}
+  \item Modern Compiler Design \cite{grune2012}
   \end{itemize}
 
   \section{Parsing}
@@ -4361,6 +4362,9 @@ deduction of form of types that an expression can take via 2 routes:
 \end{itemize}
 two type expressions from the above deductions must match for the expression to be well typed
 
+\vfill\null
+\columnbreak
+
 \subsection{Finding Types}
 
 analyze type structure of an expression using an upsidedown tree:
@@ -4477,11 +4481,25 @@ fully worked out substitution is idempotent (unless there is circularity which i
 phi is idempotent and phi moves tvn $\implies$\\
 \verb|sub_type phi (VAR tvn)| is a fixed point of phi and cannot contain tvn
 
+\vfill\null
+\columnbreak
+
 \subsection{Unification}
 
-given an equation: \verb|t1 = t2|, solve the equation by finding a subsitution phi such that: \verb|sub_type phi t1 = sub_type phi t2|
+\subsubsection{general recursive algo. for unifying 2 items}
+perform deref (follow pointer chain until it finds a non-variable or variable with nullptr) on both items to discriminate if it's a bound variable or not:
+\begin{itemize}
+\item variable after deref $\implies$ it's unbound: unbound variable is bound to other item (possible other item is also a variable); perform degeneracy check for both variables being the same variable
+\item o/w $\implies$ bound variable: 2 items under test are of different type then unification fails, otherwise select  comparison based on type:
+  \begin{itemize}
+    \item 2 constants $\implies$ equality comparison of their values
+    \item 2 structures $\implies$ check structure id/name and arity; recursive call to unify each pair of components
+  \end{itemize}
+\end{itemize}
 
-then, phi is a unifier of t1 and t2; extend this to a set of equations
+see \cite{grune2012} pg.688
+
+given an equation: \verb|t1 = t2|, solve the equation by finding a subsitution phi such that: \verb|sub_type phi t1 = sub_type phi t2|, then phi is a unifier of t1 and t2; extend this to a set of equations
 
 idea: find a maximally general solution substitution phi, then find \verb|psi = rho scomp phi| where psi is an extension of phi (phi is no less general than psi)
 
@@ -4990,6 +5008,29 @@ large arguments: use pointers instead when doing substitution to formal paramete
 rewrite root of redex with result ensures expressions shared are reduced only once
 
 subcomponents of redex may be detatched afterward from the graph for garbage collection
+
+reduction step reduces expression to a simpler one:
+\begin{itemize}
+\item but number of nodes in graph may not decrease due to nodes representing body of a function are introduced when applying a function
+\item substitution of a subgraph referred by a function name with its definition
+\end{itemize}
+
+graph reducer code gen:
+for each function in program
+\begin{itemize}
+  \item generate:
+    \begin{itemize}
+    \item function descriptor
+    \item instructions, that will create the graph in memory corresponding to RHS definition of the function, when run
+    \end{itemize}
+  \item translate each core construct into a function call (instructions)
+    \begin{itemize}
+      \item identifiers: use its name,; no-op
+      \item numbers and data: alloc on heap with contructor function
+      \item function application: construct graph with application nodes and pointers to argument expressions
+  \end{itemize}
+\end{itemize}
+  
 
 \subsection{Preserving Original Lambda Abstraction for Reuse by Other Parts of the Program}
 create a new instance of its body when the abstraction is used
@@ -5951,6 +5992,41 @@ if function is strict in an argument, then it's safe to use E scheme and avoid b
 
 partial application / supercombinator that return a function: eval provided arguments straight away instead of building graphs
 
+\subsection{Structness Analysis}
+propagate strictness info. bottom up
+
+use a map: \verb|(function, arg_position) -> bool|
+
+base cases:
+\begin{itemize}
+\item parameter/ local variable in letexpr $\implies$ strict identifiers set: \verb|{var}|
+\item constant / data constructor / function names $\implies$ empty strict identifiers set
+\end{itemize}
+
+construct and strictness propagate rules
+\begin{itemize}
+\item \verb|L op R| $\implies$ L $\cup$ R
+\item \verb|if C then T else E| $\implies$ C $\cup$ (T $\cap$ E)
+\item fun$_m$ @ $A_1$ .. $A_n$ $\implies$ $\cup$ strict(fun.i)$_{i=1}^{min(m,n)}$ A$_i$, n $\geq$ m
+\item F @ $A_1$ .. $A_n$ $\implies$ F
+\item let v= V in E $\implies$ (E $\backslash$ \{v\}) $\cup$ V, v $\in$ E\\
+  let v= V in E $\implies$ E, v $\not\in$ E
+\end{itemize}
+
+recursive function
+\begin{itemize}
+\item assume optimistic initial set
+\item propagate and compare result set to initial assumption
+\item repeat propagate with updated assumption until the result agrees with assumption
+\item in the degenerate case of recursive function that does not terminate, optimistic scheme reports strict arguments that are actually not strict; in practice it's not a serious issue anyways
+\end{itemize}
+
+analysis of strictness of data structure is hard in general, many analyzers not address this
+
+use of programmer annotation / manually indicating strictness, eg: seq in Haskell
+
+can use strictness info. for optimization, eg: to avoid creating application nodes and spines
+
 \subsection{Global Structness Info}
 
 using strictness analysis:
@@ -5986,7 +6062,7 @@ avoid repeated unwinding:
 
 \subsection{Eager Evaluation}
 \begin{itemize}
-\item avoid creating cells when evaluating expressions
+\item avoid creating cells and application spines to unwind when evaluating expressions
 \item specialize C scheme to directly use code instead of creating cells
 \item if arguments is known to be eval'd already, then avoid extr cell creation and use direct code for eager eval $\implies$ performs operations that may not be used (graph created with C scheme may be discarded)\\
   $\implies$ this is still safe since the arguments are for sure already evaluated so it will terminate\\
@@ -5994,7 +6070,14 @@ avoid repeated unwinding:
 \item propagate this info. upward via environment which records items on stack being already evaluated or not
 \end{itemize}
 
-\subsection{Boxing/Unboxing on Primitives}
+\subsection{Boxing Analysis}
+
+applied after strictness analysis
+
+finds which arguments ar esuitable for unboxing
+
+pass basic value unboxed at strict argument positions
+
 temporary/transient cells and bitmasking instr. may be used in boxing/unboxing in between other operations that are costly
 
 instructions to:
@@ -6008,6 +6091,18 @@ need modification for GC system to distinguish box vs. unboxed items on stack
 \begin{itemize}
 \item eg: can use an additional stack for only unboxed values and instructions are aware which stacks to use based on unboxed/voxed form of tiem
 \end{itemize}
+
+\subsection{Pointer Tagging}
+use alignment constraints of addresses to stor additional info. in a few bits to discriminate things like boxed vs. unboxed values
+
+mask/unmask bits before using actual pointer
+
+\subsection{Vector Apply Node}
+instead of binary application node, use: function pointer + length field + n argument pointers
+
+unwinding skipped and reducer directly invoke function since vector apply node is already a closure with needed arugments inside (assuming nuber of args match arity of function)
+
+normally unwinding application node via stacking arguments before invoking function via code address
 
 \subsection{Peephole Optimization}
 
