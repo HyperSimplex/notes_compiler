@@ -4510,7 +4510,7 @@ idea: find a maximally general solution substitution phi, then find \verb|psi = 
 given a substitution, phi, that already solves a set of equations, $t_1=t_1^{\prime}, .., t_n=t_n^{\prime}$, extend the system to add one additional equation $t_{n+1}=t_{n+1}^{\prime}$. Extend idempotent substituion phi by phi' where phi' is an idempotent unifier of $t_{n+1}=t_{n+1}^{\prime}$ by returning (Ok phi'). If there is no extension of phi which unifies $t_{n+1}=t_{n+1}^{\prime}$, return Failure.
 
 \begin{verbatim}
-unify :: subst -> (fype_expr, type_exp)
+unify :: subst -> (type_expr, type_exp)
   -> Reply subst
 unify phi ((TVAR tvn),t)
   = extend phi tvn phit, if phitvn = TVAR tvn
@@ -4529,7 +4529,7 @@ unify phi ((TCONS tcn ts),(TCONS tcn' ts'))
 
 Reply a = Ok a | Failure
 
-unifyi :: subst -> [(fype_exp, fype_exp)]
+unifyi :: subst -> [(type_exp, type_exp)]
   -> Reply subst
 unifyi phi eqns = foldr unify' (Ok phi) eqns
   where
