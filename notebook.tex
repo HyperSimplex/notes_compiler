@@ -4476,7 +4476,7 @@ a substitution, phi, is idempotent if:
 \verb|scomp phi phi = phi| or 
 \verb|(sub_type phi) . (sub_type phi) = sub_type phi|
 
-fully worked out substitution is idempotent (unless there is circularity which is an error)
+fully worked out / resolved substitution is idempotent (unless there is circularity which is an error)
 
 phi is idempotent and phi moves tvn $\implies$\\
 \verb|sub_type phi (VAR tvn)| is a fixed point of phi and cannot contain tvn
@@ -4507,13 +4507,15 @@ idea: find a maximally general solution substitution phi, then find \verb|psi = 
 \columnbreak
 
 \subsection{Robinson's Unification Algo.}
-given a substitution, phi, that already solves a set of equations, $t_1=t_1^{\prime}, .., t_n=t_n^{\prime}$, extend the system to add one additional equation $t_{n+1}=t_{n+1}^{\prime}$. Extend idempotent substituion phi by phi' where phi' is an idempotent unifier of $t_{n+1}=t_{n+1}^{\prime}$ by returning (Ok phi'). If there is no extension of phi which unifies $t_{n+1}=t_{n+1}^{\prime}$, return Failure.
+given a substitution, phi, that already solves a set of equations, $t_1=t_1^{\prime}, .., t_n=t_n^{\prime}$, extend the system to add one additional equation $t_{n+1}=t_{n+1}^{\prime}$. Extend idempotent substitution phi by phi' where phi' is an idempotent unifier of $t_{n+1}=t_{n+1}^{\prime}$ by returning (Ok phi'). If there is no extension of phi which unifies $t_{n+1}=t_{n+1}^{\prime}$, return Failure.
 
 \begin{verbatim}
 unify :: subst -> (type_expr, type_exp)
   -> Reply subst
 unify phi ((TVAR tvn),t)
-  = extend phi tvn phit, if phitvn = TVAR tvn
+  // unbound variable case
+  = Extend phi tvn phit, if phitvn = TVAR tvn
+  // bound variable case
   = unify phi (phitvn,phit) //guaranteed tvn cannot
                             //occur in phitvn or phit
   where
@@ -4524,22 +4526,22 @@ unify phi ((TCONS tcn ts),(TVAR tvn))
   = unify phi ((TVAR tvn),(TCNS tcn ts))
 
 unify phi ((TCONS tcn ts),(TCONS tcn' ts'))
+  // recursive case
   = unifyi phi (ts zip ts'), if tcn = tcn'
   = Failure
 
 Reply a = Ok a | Failure
 
-unifyi :: subst -> [(type_exp, type_exp)]
+unifyl :: subst -> [(type_exp, type_exp)]
   -> Reply subst
-unifyi phi eqns = foldr unify' (Ok phi) eqns
+unifyl phi eqns = foldr unify' (Ok phi) eqns
   where
     unify' eqn (Ok phi) = unify phi eqn
     unify' eqn Failure = Failure
 
 type_exp := TVAR tvname | TCONS [char] [type_exp]
 
-extend :: subst -> tvname -> type_expr
-  -> Reply subst
+extend :: subst -> tvname -> type_expr -> Reply subst
 extend phi tvn t = Ok phi, if t = TVAR tvn
                  = Failure, if tvn in tvars_in t
                  = Ok ((delta tvn t) scomp phi)
@@ -4558,6 +4560,7 @@ sub_type phi (TVAR tvn) = phi tvn
 sub_type phi (TCONS tcn ts) =
   TCONS tcn (map (sub_type phi) ts)
 
+// collect type variables
 tvars_in ::type_exp -> [tvname]
 tvars_in t = tvars_in' t []
   where
@@ -4571,21 +4574,21 @@ tvars_in t = tvars_in' t []
 
 \subsection{Tracking Types During Type Checking}
 
-when type checking free variables in expressions
+when type checking free variables in expressions; alternatives:
 
 \subsubsection{Occurences}
-look at either occurences of free variables in the expression:
+look at occurences of free variables in the expression to find out their constraints
 
 free variables are either builtin functions or functions associated with the type definitions
 
-types deduced for each occurence of free variables can be instances of supplied by the constraint system
+types deduced for each occurence of free variables can be instances of types supplied a priori for that variable
 
-associate a type expression with each occurence of a free variable in an expression
+see if types associated with various occurence of the same free variable can be unified to a same type expression
 
 \subsubsection{Variables}
 type check definition variables, then check body expression
 
-at each occurence of a defined variable, construct an instance of its associated type (using a type scheme / template) and substitude newly (uniquely) generated type variables for schematic type variables while copying non-schematic type variables
+at each occurence of a defined variable, construct an instance of its associated type (using a type scheme / template) and substitute newly (uniquely) generated type variables for schematic type variables while copying non-schematic type variables
 
 schematic type variables of the type scheme of a variable are those that are freely instantiated in order to satisfy the type constraint of the variable in its surrounding context at each occurence of variable
 
@@ -4593,12 +4596,12 @@ non-schematic type variables are constrained and not newly instantiated, thus on
 
 possible representation of type scheme in a type checker:
 \begin{verbatim}
-type_scheme ::= SCHEME [tvname] type_exp
+type_scheme ::= Scheme [tvname] type_exp
 
 // type variable for a type scheme is unknown if
-// it does not occur in [tvname] of SCHEME
+// it does not occur in type parameter list, [tvname], of Scheme
 unknowns_scheme :: type_scheme -> [tvname]
-unknowns_scheme (SCHEME scvs t) = tvars_in t bar scvs
+unknowns_scheme (Scheme scvs t) = tvars_in t bar scvs
 
 bar :: [*] -> [+] -> [+]
 bar xs ys = [ x <- xs | !(x in ys) ]
@@ -4608,12 +4611,12 @@ in x’ (x:xs) = True, x=x’
              = x’ in xs, otherwise
 \end{verbatim}
 
-during type checking, substitution occurs on type scheme to further constraint its unknown type variables when more info. is gathered
+during type checking, substitution occurs on type scheme to further constrain its unknown type variables when more info. is gathered
 
 \begin{verbatim}
 sub_scheme :: subst -> type_scheme -> type_scheme
-sub_scheme phi (SCHEME scvs t)
-  = SCHEME scvs (sub_type (exclude phi scvs) t)
+sub_scheme phi (Scheme scvs t)
+  = Scheme scvs (sub_type (exclude phi scvs) t)
 
 where
 
@@ -4662,108 +4665,192 @@ type_env == assoc_list vname type_scheme
 assoc_list a b == [(a,b)]
 
 unknowns_te :: type_env -> [tvname]
-unknowns_te gamma = appendlist (map unknowns_scheme (rng gamma))
+unknowns_te gamma = appendlist
+  (map unknowns_scheme (range gamma))
 appendlist :: [ [a] ] -> [a]
 appendlist lls = foldr (++) [] lls
 sub_te :: subst -> type_env -> type_env
 sub_te phi gamma
   = [ (x,sub_scheme phi st) | (x,st) <- gamma ]
+range :: [(k, v)] -> [v]
 \end{verbatim}
 
 \vfill\null
-\columnbreak
+% \columnbreak
+\pagebreak
 
-\subsection{An Impl.}
+\subsection{An Impl of Type Checker}
 
-\subsubsection{type checking lists of expr}
+consider representation of the program using these structured types derivable from constructs in concrete syntax:
 \begin{verbatim}
+vname = [char]
+vexp := Var vname
+        | Lambda vname vexp
+        | Ap vexp vexp
+        | Let [vname] [vexp] vexp
+        | Letrec [vname] [vexp] vexp
+\end{verbatim}
+
+\begin{verbatim}
+tc :: type_env -> name_supply -> vexp
+  -> reply(subst, type_exp)
+tc gamma ns (Var x) = tcvar gamma ns x
+tc gamma ns (Ap e1 e2) = tcap gamma ns e1 e2
+tc gamma ns (Lambda x e) = tclambda gamma ns x e
+tc gamma ns (Let xs es e) = tclet gamma ns xs es e
+tc gamma ns (Letrec xs es e) = tcletrec gamma ns xs es e
+\end{verbatim}
+
+\subsubsection{helpers}
+\begin{verbatim}
+reply a := Ok a | Failure
+
 tcl :: type_env -> name_supply -> [vexp]
   -> reply (subst, [type_exp])
-tcl gamma ns [] = OK (id_subst,[])
+// subst contains constraints to derive types in
+//   type env. simultaneously
+tcl gamma ns [] = Ok (id_subst,[])
 tcl gamma ns (e:es)
-  = tcl1 gamma nsO es (tc gamma ns1 e)
+  = tcl1 gamma nsO es (tc gamma ns1 e) // recursion
     where (ns0,ns1) = split ns
-tcl1 gamma ns es FAILURE = FAILURE
-tcl1 gamma ns es (OK (phi,t))
+tcl1 :: type_env -> name_suply -> [vexp]
+  -> reply(subst, type_exp) -> reply(subst, [type_exp])
+tcl1 gamma ns es Failure = Failure
+tcl1 gamma ns es (Ok (phi,t))
   = tcl2 phi t (tcl gamma' ns es)
     where gamma' = sub_te phi gamma
-tcl2 phi t FAILURE = FAILURE
-tcl2 phi t (OK (psi,ts))
-  = OK (psi scomp phi, (sub_type psi t) : ts)
+tcl2 :: subst -> type_exp -> reply(subst, [type_exp])
+  -> reply(subst, [type_exp])
+tcl2 phi t Failure = Failure
+tcl2 phi t (Ok (psi,ts))
+  = Ok (psi scomp phi, (sub_type psi t) : ts)
+
+sub_te :: subst -> type_env -> type_env
+sub_te phi gamma =
+  [(x, sub_scheme phi st) | (x,st) <- gamma]
+
+subst :: tvname -> type_exp
+
+sub_scheme :: subst -> type_scheme -> type_scheme
+sub_sceheme phi (Scheme scvs t) =
+  Scheme scvs (sub_type (exclude phi scvs) t)
+  where: exclude phi scvs tvn = Tvar tvn, tvn $in scvs
+                              = phi tvn, o/w
+
+sub_type :: subst -> type_exp -> type_exp
+sub_type phi (Tvar tvn) = phi tvn
+sub_type phi (Tcon tcn ts)
+  = Tcons tcn (map (sub_type phi) ts)
+
+id_subst :: subst
+id_subst tvn = Tvar tvn
+
+scomp :: subst -> subst -> subst
+scomp sub2 sub1 tvn = sub_type sub2 (sub1 tnv)
+
+//associating free variables with type schemes
+type_env := [(vname, type_scheme)]
+\end{verbatim} 
+
+representation of type expressions internally by the compiler:
+\begin{verbatim}
+tvname = [char]
+type_expr := Tvar tvname
+             | Tcons [char] [type_exp]
+type_scheme := Scheme [tvname] type_exp
 \end{verbatim}
 
 \subsubsection{type checking variables}
-
-type checking variable x
-
-construct phi substitution that solves e1 and e2
-
-if t1 and t2 are derived for e1 and e2, then create an extension of phi with additional constraint:
-
-\verb|t1 = t2 -> t'| where t' is a new type variable
-
-apply unification to \verb|t1| with \verb|t2 -> t'| to obtain the extension
+a type variable is one of:
+\begin{itemize}
+\item a schematic type variable occuring in the type parameter list of the type scheme $\implies$ substitute it with a new/fresh instantiation of a type variable
+\item an unknown $\implies$ leave as is
+\end{itemize}
 
 \begin{verbatim}
 tcvar :: type_env -> name_supply -> vname
   -> reply (subst,type_exp)
 tcvar gamma ns x
-  = OK (id_subst, newinstance ns scheme)
+  = Ok (id_subst, newinstance ns scheme)
     where scheme = val gamma x
 
-where
-
 newinstance :: name_supply -> type_scheme -> type_exp
-newinstance ns (SCHEME scvs t)
+newinstance ns (Scheme scvs t)
   = sub_type phi t
-  where al = sevs $zip (name_sequence ns)
-        phi = alto_subst al
-\end{verbatim}
-\subsubsection{type checking application}
+  where al = scvs $zip (name_sequence ns)
+        phi = al_to_subst al
 
-\verb|(AP e1 e2)|
-
-\begin{verbatim}
-tcap :: type_env -> name_supply -> vexp -> vexp
-  -> reply (subst,type_exp)
-tcap gamma ns e1 e2
-  = tcap1 tvn (tcl gamma ns’ [e1,e2])
-    where tvn = next.name ns
-          ns' = deplete ns
-tcap1 tvn FAILURE = FAILURE
-tcap1 tvn (OK (phi,{t1,t2]))
-  = tcap2 tvn (unity phi (t1,t2 $arrow (TVAR tvn)))
-tcap2 tvn FAILURE = FAILURE
-tcap2 tvn (OK phi) = OK (phi, phi tvn)
+// al is an association list between schematic variable and
+// unique/fresh name
+al_to_subst :: [(tvname,tvname)] -> subst
+al_to_subst al tvname = Tvar (val al tvname)
+                        , if tvname $in (dom al) //in type params
+                      = Tvar tvname, o/w //unknown, leave as
 \end{verbatim}
+
 \subsubsection{type checking lambda abstraction}
 
-\verb|(LAMBDA x e)|
+\verb|(Lambda x e)|
+
+where \verb|x| is unknown
+
+\verb|x| given type scheme \verb|(Scheme [] (Tvar tvn))| where \verb|tvn| is a new type variable; all occurences of bound variable have same type
 
 \begin{verbatim}
 tclambda :: type_env -> name_supply -> vname
-  -> vexp -> reply (subst,type_exp)
+  -> vexp -> reply (subst, type_exp)
 tclambda gamma ns x e
   = tclambda1 tvn (tc gamma' ns' e)
     where ns' = deplete ns
-          gamma' = new_bvar (x,tvn) : gamma
-          tvn = nextmame ns
-tclambda1 tvn FAILURE = FAILURE
-tclambda1 tvn (OK (phi,Q)
-  = OK (phi, (phi tvn) Sarrow t)
-new_bvar (x,tvn) = (x,SCHEME [] (TVAR tvn))
+          gamma' = new_bvar (x, tvn) : gamma
+          tvn = nextname ns
+tclambda1 tvn Failure = Failure
+tclambda1 tvn (Ok (phi, Q)
+  = Ok (phi, (phi tvn) Sarrow t)
+new_bvar (x, tvn) = (x, Scheme [] (TVAR tvn))
 \end{verbatim}
+
+\vfill\null
+\columnbreak
+
+\subsubsection{type checking application}
+
+\verb|(Ap e1 e2)|
+
+try construct a substitution \verb|phi| that solves type constraints on \verb|e1| and \verb|e2| simultaneously
+
+\verb|e1 :: t1, e2 :: t2| derived types $\implies$ construct extension of \verb|phi| that satisfies also additional constraint: \verb|t1 = t2 -> t'| where \verb|t'| is a new type variable
+
+unify \verb|t1| with \verb|t2 -> t'| in order to get this extension
+
+\begin{verbatim}
+tcap :: type_env -> name_supply -> vexp -> vexp
+  -> reply (subst, type_exp)
+tcap gamma ns e1 e2
+  = tcap1 tvn (tcl gamma ns’ [e1, e2])
+    where tvn = next.name ns
+          ns' = deplete ns
+tcap1 tvn Failure = Failure
+tcap1 tvn (Ok (phi, [t1, t2]))
+  = tcap2 tvn (unify phi (t1, t2 $arrow (TVAR tvn)))
+tcap2 tvn Failure = Failure
+tcap2 tvn (Ok phi) = Ok (phi, phi tvn)
+\end{verbatim}
+
+\vfill\null
+\columnbreak
 
 \subsubsection{type checking let-expressions}
 
-\verb|(LET xs es e)|
+\verb|(Let xs es e)|
 
-general steps:
-\begin{enumerate}
-\item type check es
-\item update environment in xs (associates name with appropriate schematic types)
-\item type check e
-\end{enumerate}
+instantiate fresh/new type schemes for variables in definition variable list \verb|xs| where type schemes have empty schemetic variables list $\iff$ diesgn s.t. all occurences of defined names in RHS of recursive definition should have same types
+
+type check RHS \verb|es| yielding substitution and list of types that can be derived for RHS if type env. is constrained by the substituion
+
+unify RHS derived types with their corresponding variables' types in context of that substitution $\iff$ design st.t. RHS of recursive definitions receive some types as occurences of corresponding variables; unification succeeds $\implies$ constraint can be met
+
+type check the body \verb|e| after updating type env. with schematic types
 
 \begin{verbatim}
 tclet :: type_env -> name_supply
@@ -4772,15 +4859,15 @@ tclet :: type_env -> name_supply
 tclet gamma ns xs es e
   = tcleti gamma nsO xs e (tcl gamma ns1 es)
     where (nsO,ns1) = split ns
-tclet1 gamma ns xs e FAILURE = FAILURE
-tclet1 gamma ns xs e (OK (phi,ts))
+tclet1 gamma ns xs e Failure = Failure
+tclet1 gamma ns xs e (Ok (phi,ts))
   = tclet2 phi (tc gamma’ ns1 e)
     where gamma'' = add_decls gamma’ ns0 xs ts
           gamma' = sub_te phi gamma
           (nsO,ns1) = split ns
-tclet2 phi FAILURE = FAILURE
-tclet2 phi (OK (phi',t))
-  = OK (phi' scomp phi, t)
+tclet2 phi Failure = Failure
+tclet2 phi (Ok (phi',t))
+  = Ok (phi' scomp phi, t)
 
 add_decls :: type_env -> name_supply
   -> [vname] -> [type_exp] -> type_env
@@ -4788,7 +4875,7 @@ add_decls gamma ns xs ts
   = (xs zip schemes) ++ gamma
      where schemes = map (genbar unknowns ns) ts
            unknowns = unknowns_te gamma
-genbar unknowns ns t = SCHEME (map snd al) t'
+genbar unknowns ns t = Scheme (map snd al) t'
   where al = scvs $zip (name_sequence ns)
         scvs = (nodups (tvars_in t)) $bar unknowns
         t' = subtype (alto_subst al) t
@@ -4801,30 +4888,33 @@ nodups xs = f [] xs
                          = f (x:acc) xs
 \end{verbatim}
 
+\vfill\null
+\columnbreak
+
 \subsubsection{type checking letrec-expressions}
 
-\verb|(LETREC xs es e)|
+\verb|(Letrec xs es e)|
 
-general steps:
-\begin{enumerate}
-\item Associate new type schemes with the variables xs. These schemeswill
+Associate new type schemes with the variables xs. These schemeswill
 have no schematic variables, in accordance with our decision to insist
 that all occurrences of a defined name in the right-hand sides of a
 recursive definition should have the sametype.
-\item Type-check the right-hand sides. If successful, this will yield a
+
+Type-check the right-hand sides. If successful, this will yield a
 substitution and a list of types which may be derived for the right-hand
 sides if the type environmentis constrained by the substitution.
-\item Unify the types derived for the right-handsides with the types associated
+
+Unify the types derived for the right-handsides with the types associated
 with the correspondingvariables, in the context of that substitution. This
 is in accordance with our decision that the right-hand sides of recursive
 definitions must receive the same types as occurrences of the corres-
 ponding variables. Should the unification succeed, that constraint can be
 met.
-\item We are now in muchthe samesituation as we were in with expressions of
+
+We are now in muchthe samesituation as we were in with expressions of
 LET form, when the definitions had been processed, and it remained to
 type-check the body e, after updating the type environment with
 appropriate schematic types.
-\end{enumerate}
 
 \begin{verbatim}
 tcletrec :: type_eny -> name_supply
@@ -4832,7 +4922,7 @@ tcletrec :: type_eny -> name_supply
   -> teply (subst, type_exp)
 tcletrec gamma ns xs es e
   = tcletrec1 gamma nsO nbvs e
-      (tc] (nbvs ++ gamma) ns1 es)
+      (tcl (nbvs ++ gamma) ns1 es)
     where (ns0,ns') = split ns
           (ns1,ns2) = split ns'
           nbvs = new_bvars xs ns2
@@ -4840,18 +4930,18 @@ tcletrec gamma ns xs es e
 new_bvars xs ns 
   = map new_bvar (xs zip (name_sequence ns))
 
-tcletrec1 gamma ns nbvs e FAILURE = FAILURE
-tcletrec1 gamma ns nbvs e (OK (phi, ts))
+tcletrec1 gamma ns nbvs e Failure = Failure
+tcletrec1 gamma ns nbvs e (Ok (phi, ts))
   = tcletrec2 gamma' ns nbvs' e
       (unifyl phi (ts zip ts'))
   where ts’ = map old_bvar nbvs'
         nbvs’ = sub_te phi nbvs
         gamma’ = sub_te phi gamma
 
-old_bvar (x,SCHEME [] t) = t
+old_bvar (x,Scheme [] t) = t
 
-tcletrec2 gamma ns nbvs e FAILURE = FAILURE
-tcletrec2 gamma ns nbvs e (OK phi)
+tcletrec2 gamma ns nbvs e Failure = Failure
+tcletrec2 gamma ns nbvs e (Ok phi)
   = tclet2 phi (tc gamma’’ ns1 e)
     where ts = map old_bvar nbvs’
           nbvs' = sub_te phi nbvs
@@ -4862,6 +4952,12 @@ tcletrec2 gamma ns nbvs e (OK phi)
                       (map fst nbvs)
                       ts
           (nsO,ns1) = split ns
+
+unifyl :: subst -> [(type_exp,type_exp)] -> reply subst
+unifyl phi eqns = foldr unify’ (Ok phi) eqns
+where
+  unify’ eqn (Ok phi) = unify phi eqn
+  unify’ eqn Failure = Failure
 \end{verbatim}
 
 \vfill\null
@@ -5992,7 +6088,7 @@ if function is strict in an argument, then it's safe to use E scheme and avoid b
 
 partial application / supercombinator that return a function: eval provided arguments straight away instead of building graphs
 
-\subsection{Structness Analysis}
+\subsection{Strictness Analysis}
 propagate strictness info. bottom up
 
 use a map: \verb|(function, arg_position) -> bool|
@@ -6027,7 +6123,7 @@ use of programmer annotation / manually indicating strictness, eg: seq in Haskel
 
 can use strictness info. for optimization, eg: to avoid creating application nodes and spines
 
-\subsection{Global Structness Info}
+\subsection{Global Strictness Info}
 
 using strictness analysis:
 \begin{itemize}
