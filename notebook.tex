@@ -1980,7 +1980,7 @@ function append< e >(a: list<e>, b: list<e>): list<e>
   = ...
 \end{verbatim}
 
-  \subsubsection{Polymorphic Type Checking}
+  \subsubsection{Polymorphic Type}
   
   idea: replace $\beta$ with $t$ in a type expression
 
@@ -2000,6 +2000,8 @@ function append< e >(a: list<e>, b: list<e>): list<e>
   use \verb%App% on \verb%Tyfun(..)% and provided type substitution variables to replace $\alpha_i$'s to get actual type of function
 
   \verb%Poly(tyvarlist, ty)% may use types in \verb%tyvarlist%
+
+  Poly type with empty type parameters $\iff$  monomorphic
 
   \subsubsection{Substitution Rules}
   
@@ -2042,22 +2044,76 @@ function append< e >(a: list<e>, b: list<e>): list<e>
 
   distinction of declaration of record that might have exact same fields
 
-  \subsubsection{Checking Type Equivalence}
-
-  expand: to see internal structure of a type
+  \subsubsection{Utility Functions}
 
   often need to expand \verb%Tyfun% in \verb%App(Tyfun(..), ..)%, substituting actual parameters for formal parameters
 
   for \verb%App(Unique(Tycon, z), ...)%, don't expand \verb%Tycon% but test the uniqueness mark \verb%z%
 
-  algo 16.5: Unify (check for quivalence of types), extend it to infer types for implicitly typed language; give error message if it fails
+  algo 16.5: utility helper functions, unify, to check for quivalence of types
 
-  algo 16.6: Expand types for equivalence check or operations requiring info of internal structures
+  algo 16.7: translation of different delcarations into internal ocmpiler constructs/types
 
-  algo 16.7: type declarations and translation rules into internal representation of type module (via modification of environments)
+  algo 16.8 type checking of definitions and expressions by considering different cases
 
-  algo 16.8 type checking rules for polymorphic language
+  algo 6.10 Hindley-Milner for an implictly typed language
 
+  \vfill\null
+  \columnbreak
+  
+  \subsubsection{Generalization of a Type}
+  
+  after translation of definition, free metavariables of a type become bound type parameters of a Poly type wrapping the original type
+
+  also need to consider surrounding context (env. var mapping) which may restrict generalization of free metavariable
+  
+  \begin{lstlisting}
+    // each free metavariable $\alpha_i$
+    // also not appearing in surrounding env.:
+    // newly allocated typevar $a_i$
+    $\sigma_m$ = $\sigma_m$ + {$\alpha_i$ $\rightarrow$ Var($a_i$)}
+    ...
+    Poly([$a_i$,..], t)
+  \end{lstlisting}
+  
+  \subsubsection{Instantiation of a Polymorphic Variable}
+
+  use of a polymorphic variable
+
+  substitute bound type parameters/variables of Poly with actual metavariables
+
+  \begin{lstlisting}
+    $\alpha_i$ $\leftarrow$ new_metavariable
+    ...
+    subst(t, {$a_1$ $\rightarrow$ Meta($\alpha_1$), .., $a_k$ $\rightarrow$ Meta($\alpha_k$)})
+  \end{lstlisting}
+
+  \subsection{Type Equivalence Checking with Unify}
+  Robinson's algorithm for unification: finding substitution, S, that simultaneously satisfies all pairs of terms $(u_i, v_i)$ s.t. $(\forall i) u_i S = v_i S$
+
+  \begin{lstlisting}
+    Unify($\emptyset$) = I
+    Unify({(x,x)} $\cup$ E) = Unify(E)
+    //guard for avoiding ciruclar definition
+    Unify({(x,t)} $\cup$ E) = {t/x} Unify(E{t/x}) if x $\in$ FV(t)
+    Unify({(f($s_1$,..,$s_n$), f($t_1$,..,$t_n$))} $\cup$ E)
+      = Unify({($s_1$,$t_1$),..($s_n$,$t_n$)} $\cup$ E)
+    otherwise Unify(a,b) = Error
+    where:
+      {t/s} $\equiv$ substitution where t replaces s
+      E{t/s} $\equiv$ apply {t/s} substitution to all items in set E
+  \end{lstlisting}
+
+  chaining of substitutions from left to right using the above convention, eg: $uST = vT = uV$ where $v = uS$, $V = ST$
+
+  sample substitution:
+  \begin{lstlisting}
+    S = {g(z)/x, g(y)/w}
+    where:
+      g(z)/x is applied to left item in a pair
+      g(y)/w is applied to right item in a pair
+  \end{lstlisting}
+  
   \subsection{Type Inference for Implicitly Typed Languages}
 
   types omitted except for polymorphic type declarations in record, etc.
@@ -2065,10 +2121,10 @@ function append< e >(a: list<e>, b: list<e>): list<e>
   Hindley-Milner type inference algo (algo. 16.10):
   \begin{itemize}
   \item conversion into explicitly typed program
-  \item introduce a meta-variable for an unknown type: $ty \rightarrow Meta(metavar)$
+  \item introduce a metavariable for an unknown type: $ty \rightarrow Meta(metavar)$
     \begin{itemize}
     \item used as placeholder for an unknown type that we need to infer
-    \item solve for as much meta-variables as possible
+    \item solve for as much metavariables as possible
     \end{itemize}
   \item use unify to derive relationship between meta-variables
   \item remaining undetermined meta type variables can be converted to variables bound by Poly types (polymorphic types)
@@ -2084,6 +2140,29 @@ function append< e >(a: list<e>, b: list<e>): list<e>
     \end{itemize}
   \end{itemize}
 
+  \subsubsection{Applying Unification Algo. on Type Expressions to Infer Types (\cite{cs6110})}
+
+  enumerate all subterms of target expression $e$ as $e_1, .., e_m$
+
+  assign uniue type variable $\alpha_i$ to each $e_i$
+
+  assign unique type variable $\beta_x$ to each variable $x$
+
+  formulate constraints based on different cases of expression:
+  \begin{itemize}
+  \item $e_i$ is an occurence of a variable $x$ $\implies$ add constraint $\alpha_i=\beta_x$
+  \item $e_i$ is an occurence of an application $e_j e_k$ $\implies$ add constraint $\alpha_j=\alpha_k \rightarrow \alpha_i$
+  \item $e_i$ is an occurence of an abstraction $\lambda x.e_j$ $\implies$ add constraint $\alpha_i=\beta_x \rightarrow \alpha_j$
+  \end{itemize}
+
+  $\implies$ obtain a set of pairs, \{$(\sigma_i, \tau_i)$\}, of type expression constraints for unification
+
+  perform unification on constraints
+
+  resulting substitution applied to target type variable $\alpha_e$
+
+  resulting substitution is the most general unifier of $e$ $\iff$ any other valid substitution can be obtained from further chaining of substitutions on top of the most general unifier
+
   \subsection{Representation of Polymorphic Variables}
 
   type/size of variable not known; instantiated differently at use sites, but we must prepare for instruction selection
@@ -2095,7 +2174,7 @@ function append< e >(a: list<e>, b: list<e>): list<e>
   \item coercions
   \item type passing
   \end{itemize}
-
+  
   \subsubsection{Expansion of Polymorphic Functions}
   \begin{itemize}
   \item inline expand until everything is monomorphic: substitute actual types at every use site
@@ -2143,17 +2222,17 @@ function append< e >(a: list<e>, b: list<e>): list<e>
   for the case of a parameter being a polymorphic type variable (table 16.14): wrapping and unwrapping for different cases of actual vs. formal type:
   
   \begin{center}
-    \begin{tabular}{ | c | c | c |}
+    \begin{tabular}{ | p{15mm} | p{10mm} | p{55mm} |}
       \hline
-      actual args at calsite & formal params & transformation \\
+      actual args at callsite & formal params & transformation \\
       \hline
       $y: \bullet$ & $\bullet$ & $y$\\
       $y: \text{int}$ & $\bullet$ & $\text{wrap}_{\text{int}}(y)$\\
       $y: (t_1, t_2)$ & $\bullet$ & $\text{wrap}_{(t_1,t_2)}(y)$\\
       $y: (t_1, t_2)$ & $(t_1, \bullet)$ & $(y.1, \text{wrap}_{t_2}(y.2))$\\
       $f: t_1 \rightarrow t_2$ & $\bullet$ & $\text{wrap}_{t_1 \rightarrow t_2}(f)$\\
-      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow t_2$ & $\text{let fun }f_w(a) = f(\text{unwrap}_{t_1}(a)) \text{ in }f_w \text{ end}$\\
-      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow \bullet$ & $\text{let fun }f_w(a) = \text{wrap}_{t_2}(f(\text{unwrap}_{t_1}(a))) \text{ in }f_w \text{ end}$\\
+      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow t_2$ & $\text{let fun }f_w(a) = f(\text{unwrap}_{t_1}(a)) \newline \text{ in }f_w \text{ end}$\\
+      $f: t_1 \rightarrow t_2$ & $\bullet \rightarrow \bullet$ & $\text{let fun }f_w(a) = \text{wrap}_{t_2}(f(\text{unwrap}_{t_1}(a))) \newline \text{ in }f_w \text{ end}$\\
       \hline 
     \end{tabular}
   \end{center}
@@ -6835,9 +6914,367 @@ stack frame looks like heap object
 
 frame is a stack allocated function closure
 
+\vfill\null
+\columnbreak
+
 \section{Haskell Impl. Overview \cite{wiki_STG}, \cite{terei2011}}
 
 TODO
+
+\vfill\null
+\columnbreak
+
+\section{MLIR Notes \cite{mlir2021}, \cite{lei2022}}
+
+\subsection{Mechanism Overview}
+
+strucure carrying in operations via regions
+
+conversion between different types generally correspond to transformations between different levels of abstractions
+
+operations may be used at different abstraction levels
+
+favours levels of abstractions and progressive lowering wwith intra dialect conversions
+
+organization of related types and operations using dialects
+
+tensor and memref contain ops for tiled IR structure and shape manip facilities
+
+arith and math ops: payload ops for composing with payload carrying structured ops; work on multiple abstraction levels
+
+vector dialect: another rdialect for structured code generation like linalg; chip register level (more H/W architecture facing and constraints)
+
+lowering in aspects:
+\begin{itemize}
+\item decomposition (via tiling / vectorization)
+\item abstract to concrete concepts (eg: resource assignments)
+
+\end{itemize}
+
+\subsection{Structured Operations}
+
+structured operations contains compute payload (eg: attached via operations in basic block in a region)
+
+access patterns in structured operations such as \verb|linalg.generic| op using indexing maps for inputs and output
+
+\begin{lstlisting}
+indexing_maps = [ affine_map<(d0,d1,...) -> (...)>,
+                  affine_map<(d0,d1,...) -> (...)>,
+                  ...]
+
+where:
+LHS of affine_map defines induction variables
+RHS of affine_map contains the expression using
+  induction variables
+\end{lstlisting}
+
+dimension preservation/reduction of the output via \verb|iterator_types|
+
+\verb|memref| transforms using buffers reuse an intial buffer passed in as an input
+
+\verb|tensor| transforms using tensors creates new value as output where initial tensor passed in does not get modified but only read
+
+example of affine maps:
+
+\begin{lstlisting}
+[[d0,d1,d2,d3],
+ [d0,d1]]
+
+$\Updownarrow$
+
+SmallVector<AffineMap>{
+  rewriter.getMultiDimIdentityMap(4),
+  AffineMap::get(4,0,{mlir::getAffineDimExpr(0,ctx),
+                      mlir::getAffineDimExpr(1,ctx), ctx})}
+ 
+\end{lstlisting}
+
+example of compute payload attached to \verb|linalg.generic| op:
+
+\begin{lstlisting}
+ins(%1: tensor<?x?x?x?xf32>)
+outs(%5: tensor<?x?xf32>){
+  //arg1 <-> %1, arg2 <-> %5
+  ^bb0(%arg1: f32, %arg2: f32):
+    % 17 = arith.addf %arg2, %arg1 : f32
+    //yield to %5
+    linalg.yield %17 : f32
+} -> tensor<?x?xf32>
+
+$\Updownarrow$
+
+[&](OpBuilder& b, Location loc, ValueRange args){
+  Value input = args[0];
+  Value sum = args[1];
+  Value result = rewriter.create<arith::AddFOp>(
+    loc, sum, input
+  );
+  b.create<linalg::YieldOp>(loc, result);
+})
+\end{lstlisting}
+
+\subsection{Bufferization}
+
+conversion from a tensor abstraction level to a more concrete resource level with memref dialect
+
+goals: use less memory and copy less memory
+
+reuse memory need to make sure data that are live are not overwritten
+
+more complex to analyze due to presence of aliasing and dependency issues
+
+post-bufferization: distribute to different H/W tiles
+
+ownership based buffer deallocation pass separate from bufferization pass
+
+\subsubsection{Destination Passing Style (DPS)}
+
+op implement \verb|DestinationStyleOpInterface|
+
+return result with updated value
+
+output operands (not modified but copied) used as possible anchor for bufferization algo.
+
+when no conflicting (eg: dependency conflicts) uses (detection via bufferization algo. / use-def chains) of result tensor in DPS corresponding to an operand, it may be aliased with that operand and perform op in-place using the buffer allocated for the corresponding tensor operand; otherwise, allocate new buffer for result
+
+tensor ops not in DPS always bufferize to memory allocation
+
+tensor/memref boundary helper functions:
+\begin{itemize}
+\item \verb|bufferization.to_memref|: returns future buffer of a tensor SSA value
+\item \verb|bufferization.to_tensor|: returns a tensor SSA value for a memref buffer
+\end{itemize}
+
+\subsubsection{One Shot Bufferize}
+pass with DPS and aggressive in-place bufferization
+
+2 phases: analysis, rewrite IR (bufferize)
+
+ops implementing \verb|BufferizableOpInterface| can be bufferized
+
+whole function at a time analysis
+
+\vfill\null
+\columnbreak
+
+\subsection{Vector Dialect}
+
+convert static shaped ops to vector ops of same shape
+
+allows further mapping to concrete hardware architectures (eg: vector instructions and registers) via more transforms such as unrolling transforms in later stages
+
+typically used after tensor tiling
+
+unrolling pattern may be different for different vector ops; unrollable ops implement \verb|VectorUnrollOpInterface|
+
+high dimensional vectors: drop leading unit dimnesions before hoisting
+
+hoisting: inspect loop carried tensors to see if we have: \verb|vector_transfer_read| at beginning and \verb|vector.transfer_write| op at end and indices are static; hoist via \verb|linalg::hoistRedundantVectorTransferOnTensor()| or \verb|linalg::hoistRedendantVectorTransfers()|
+
+lowering: collect patterns for different ops via vector::populateVector*LoweringPatterns(); controlling lowering of specific ops to lower level operations
+
+vectorization transformations:
+\begin{itemize}
+\item \verb|transfer_read, transfer_write, contract| ops
+\item various modes of load/store and stride and padding supports
+\end{itemize}
+
+unroll, decomposition to lower high D vector ops into low D to match H/W architecture
+
+low level dialects: transformation are mostly canonicalization / cleanup and not optimizations
+
+\vfill\null
+\columnbreak
+
+\subsection{Structured Linalg}
+
+preserve structure of computation for as long as possible to enable ease of certain types of transformations
+
+patterned compute / data rearrangement operations
+
+implicit perfect loop nest: less analysis required, easier to transform 
+
+explicit loop iterator type
+
+input/output opereand has associated indexing map which specify access of operand's elements
+loop iteration space derived from op's operands
+
+use of region to hold computation
+
+operations not using perfect loop nests require custom handling
+
+with tensor: op result has associated output operand providing initial value
+
+with buffer: no result; output operand is mutable buffer
+
+sample useful constructs and mechanisms provided
+\begin{itemize}
+\item tiling: division of data into smaller ones, allowing utilization of multiple compute units; interface provides tiling strategy of the op
+\item fusion
+\item elementwise extension to high rank arrays
+\item reduction on vectors via native vector support (\verb|vector.reduction<reduction_type>|, transform into loop (\verb|scf.for|)
+\item contraction of 2 input arrays via use of \verb|indexing_maps, iterator_types|
+\end{itemize}
+
+some properties of \verb|linalg.generic|:
+\begin{itemize}
+\item explicitly contains a region (block args corresponds to individual elements of operands of \verb|ins| and \verb|outs|) for computation (arbitrary operations)
+\item destination passing style
+\item work on buffers (\verb|tensor|) or memory (\verb|memref|)
+\item out operands read and writable
+\item output operands used only as initialization values for tensor and memory; result is a new tensor
+\item memory allocation of result may be elided (becomes an in-place operation) if compiler can prove no other things mutates the output operand
+\item if output operand is a tensor, result is always a new tensor (allocated)
+\end{itemize}
+
+serveral sample useful operations provided by the transform dialect:
+\begin{itemize}
+\item \verb|transform.named_sequence| for defining transformation and allow chaining of operations
+\end{itemize}
+
+\subsubsection{Definitions}
+
+payload IR: target IR to undergo transformation
+
+transform IR: IR that defines the transformation
+
+materialization: description for how a list of values should be converted to a list of values with specific types (may produce IR). types of materialization:
+\begin{itemize}
+\item source materialization: value replaced with a value of different type, but expects source type by some users, so the materialization converts the replacement value back to the source type
+\item target materialization: converts a value to type that is expected by a conversion pattern specified by type converter
+\end{itemize}
+
+types of argument/handle to transform dialect operation:
+\begin{itemize}
+\item operation (value operation)
+\item value (value handle)
+\item attribute (value parameter)
+\end{itemize}
+
+\subsubsection{Affine Map}
+used for defining use of induction variables by input and output elements via \verb|indexing_maps|
+
+\subsubsection{Iterator Types}
+\verb|iterator_types|: one of parallel/reduction
+
+\subsubsection{Tiling}
+
+leads to vectorization or materizalization of loop nest (eg: \verb|scf.for|) and inlining of compute region
+
+embedding of structures in op semantics (multiple constructs inside together to make it work)
+
+general strategy:
+\begin{enumerate}
+\item extract subslice from original source data (\verb|tensor.extract_slice|)
+\item do computation on subslice
+\item insert computed result back into associated subslice of result data (\verb|tensor.parallel_insert_slice|)
+\end{enumerate}
+
+\subsubsection{Fusion}
+use inverse of \verb|indexing_mapping| to go from tiled consumer op back to producer op to also pull in producer op into the materialization loop associated with tiling
+
+adapt and recompute as necessary by fusing preceding operations into loops
+
+recomputation/rematerialization vs. storage tradeoff
+
+\subsubsection{Vectorization}
+mechanically convert to vector ops (which are later lowered to lower dimensional ones) and preserve shape
+
+\subsubsection{Distribution}
+
+assign tiles to compute units
+
+provide info when tiling / fusing
+
+materialized loop nest: modify loop ranges with info
+
+\subsubsection{IR Modifications}
+
+IR changes tracked during transform via provided rewriter:
+\begin{itemize}
+\item payload op erase $\implies$ auto-removed from all handles associated with it
+\item payload op replaced $\implies$ dialect find replacement op and updates all associated handles
+\end{itemize}
+
+transform operations may consume operand handle if payload ops erased or recreated: any alias to consumed handle are invalidated
+
+\subsection{Dialect Extension}
+inject new operations into an existing dialect via registration
+
+\verb|TransformDialectExtension<MyExtension>| for Transform dialect extension; within \verb|init()| function:
+
+specify dependent dialect that have attributes or types used by transofmr operations via \verb|declareDependentDialect<...>()|
+
+specify attributes, operations, and types generated by the transformation via  \verb|declareGeneratedDialect<...>()|
+
+register new operations via \verb|registerTransformOps<...>()|
+
+new operations definable with ODS in the same way as regular ops in a dialect
+
+use of Tablegen and CMake to generate header and impl of operations to be included in declaration and definition of transform operations via \verb|#define GET_OP_CLASSES / #define GET_OP_LIST| before including \verb|*.cpp.inc| file
+
+enable extension from project main driver by calling registration hook
+
+\subsection{Notable Interfaces}
+
+\verb|TransformOpInterface|
+
+\verb|DeclareOpInterfaceMethods|
+
+\subsection{Type Constraints and ApplyEach Trait}
+use Transform dialect types to specific preconditions of type of each payload operation (eg: narrowing from \verb|TransformHandleTypeInterface| to \verb|Transform_ConcreteOp<''func.call''>|
+
+helper trait \verb|TransformEachOpTrait| provides impl. of ``apply'' trait that:
+\begin{itemize}
+\item verifies
+\item iterates over payloads
+\item result concatenation
+\end{itemize}
+
+\subsection{Consuming Operand Handle of Payload}
+
+rewrite and produce a new operation and indicate side effects via \verb|modifiesPayload(effects)| within \verb|getEffects()| of \verb|MemoryEffectsOpInterface|
+
+\subsection{Matching Payload with Transform Operations}
+
+goal: caller does not need to identify payload operations when invoking a transform; let matcher identify payload operations that need to be transformed
+
+creation of custom types to constraint payload operation types vis ODS
+
+enable custom types and attributes in dialect extension via registeration hooks, eg:
+\begin{lstlisting}
+registerTypes<
+  #define GET_TYPEDEF_LIST
+  #include *.cpp.inc
+>()
+\end{lstlisting}
+
+not expected to modify payload IR
+
+expeced to fail if match operation's operands are not associated with payload IR object with desired properties )eg: op name, argument kinds)
+
+discover relevant operations in payload IR via match ops instead of explicit actions by caller
+
+use of \verb|transform.match.operation_name|
+
+chaining of match operations in a matcher sequence (eg: matching multiple ops connected locally) to enable a bigger contextual match
+
+match operation is similar to other transform operations, plus additional implementation of \verb|MatchOpInterface| (only used as verification contract that op will not attempt to transform the payload)
+
+custom match operation definable in ODS (eg: make it implement \verb|TransformOpInterface, MemoryEffectsOpInterface|); implement \verb|apply()| method for \verb|TransformOpInterface| and \verb|getEffects()| method for \verb|MemoryEffectsOpInterface|; test nested matchers (accessed thru a region's block) for matching condition
+
+\subsubsection{Matching for Inferred Features}
+
+matching for properties derivable from operations of interest and checking for constraints (eg: such as dimension access from access maps of inputs are consistent)
+
+\subsection{Rewrite Alternatives}
+\begin{itemize}
+\item PDL
+\item C++ rewriting API
+\end{itemize}
+
+\vfill\null
+\columnbreak
 
 \bibliographystyle{plain}
 \bibliography{notebook}
