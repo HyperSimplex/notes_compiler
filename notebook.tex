@@ -4026,8 +4026,8 @@ where:
          
 us$^{\prime}_i$ is a list of unique variables destructured from
   constructor c$_i$
-qs$_i$ corresponds to grouping of clauses with same constructor
-  at head of list  
+qs$_i$ corresponds to grouping of clauses with same
+  constructor at head of list  
 ps$_{i,j}$ is the remaining patterns of a clause
 \end{lstlisting}
 
@@ -4157,7 +4157,8 @@ case v of
 
 $\Downarrow$
 
-case$_T$ v //use enumeration of v to select one of the arguments
+//use enumeration of v to select one of the arguments
+case$_T$ v 
   (let v$_{1,1}$ = Sel$_{r_1,1}$ v
        ..
        v$_{1,r_1}r$ = Sel$_{r_1,r_1}$ v
@@ -4244,21 +4245,24 @@ where:
 
 QS is a list of qualifiers
 
-[ E | QS ][H/v] processes current selected element from
-  current generator qualifier by substituting H for v
-  in [ E | QS ]
+[ E | QS ][H/v] processes current selected element
+  from current generator qualifier by substituting
+  H for v in [ E | QS ]
 
-[ E | v $\leftarrow$ TS; QS ] selects another element from current
-  generator qualifier to process
+[ E | v $\leftarrow$ TS; QS ] selects another element from
+  current generator qualifier to process
 \end{lstlisting}
 
 example with lazy evaluator implementation:
 
 \begin{lstlisting}
 [ square x | x $\leftarrow$ [1 2 3]; odd x ]
-$\rightarrow$ [ square x | odd x ][1/x] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
-$\rightarrow$ [ square 1 | odd 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
-$\rightarrow$ [ square 1 | True ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square x | odd x ][1/x]
+  ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 | odd 1 ]
+  ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
+$\rightarrow$ [ square 1 | True ]
+  ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
 $\rightarrow$ [ square 1 | ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
 $\rightarrow$ [ square 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
 $\rightarrow$ [ 1 ] ++ [ square x | x $\leftarrow$ [2 3]; odd x ]
@@ -4269,12 +4273,16 @@ $\rightarrow$ [ 1 2 ] ++ [ square x | x $\leftarrow$ [3]; odd x ]
 $\rightarrow$ [ 1 2 3 ]
 \end{lstlisting}
 
+\vfill\null
+\columnbreak
+
 \subsection{Translation to Lambda Calculus}
 \begin{lstlisting}
 TE[[ [ E | v $\leftarrow$ L; QS ] ]] =
   flatmap ($\lambda$v.TE[[ [ E | QS ] ]]) TE[[ L ]]
 
-TE[[ [ E | B; QS ] ]] = IF TE[[ B ]] TE[[ [ E | QS ] ]] Nil
+TE[[ [ E | B; QS ] ]] =
+  IF TE[[ B ]] TE[[ [ E | QS ] ]] Nil
 
 TE[[ [ E | ] ]] = Cons TE[[ E ]] Nil
 
@@ -4336,6 +4344,9 @@ TQ[[ [ E | B; QS ]] ++ L ]] $\equiv$
 TQ[[ [ E | ]] ++ L ]] $\equiv$ Cons TE[[ E ]] TE[[ L ]]
 \end{lstlisting}
 
+\vfill\null
+\columnbreak
+
 \subsection{Pattern Matching in List Comprehension}
 
 apply pattern matching lambda abstraction
@@ -4386,7 +4397,8 @@ TQ[[ [ E | q $\leftarrow$ L$_1$; QS ] ++ L$_2$ ]] $\equiv$
   letrec h = $\lambda$us.case us of
     Nil $\Rightarrow$ TE[[ L$_2$ ]]
     Cons v us' $\Rightarrow$
-      (($\lambda$TE[[ q ]].TQ[[ [ E | QS ] ++ (h us') ]]) u) $\vrectangle$ (h us')
+      (($\lambda$TE[[ q ]].TQ[[ [ E | QS ] ++ (h us') ]]) u)
+      $\vrectangle$ (h us')
   in (h TE[[ L$_1$ ]])
 
 TQ[[ [ E | B; QS ]] ++ L ]] $\equiv$
@@ -4394,7 +4406,7 @@ TQ[[ [ E | B; QS ]] ++ L ]] $\equiv$
 
 TQ[[ [ E | ]] ++ L ]] $\equiv$ Cons TE[[ E ]] TE[[ L ]]
 
-note h, u, us, us' are new unique variables introduced
+note h, u, us, us' are new unique variables
 \end{lstlisting}
 
 \vfill\null
@@ -4446,7 +4458,7 @@ two type expressions from the above deductions must match for the expression to 
 
 \subsection{Finding Types}
 
-analyze type structure of an expression using an upsidedown tree:
+analyze type structure of an expression:
 \begin{itemize}
 \item variables and constants at the top
 \item internal nodes: constructors applied to form expressions
@@ -4578,7 +4590,7 @@ perform deref (follow pointer chain until it finds a non-variable or variable wi
 
 see \cite{grune2012} pg.688
 
-given an equation: \verb|t1 = t2|, solve the equation by finding a subsitution phi such that: \verb|sub_type phi t1 = sub_type phi t2|, then phi is a unifier of t1 and t2; extend this to a set of equations
+given an equation, \verb|t1 = t2|, solve the equation by finding a subsitution phi such that \verb|sub_type phi t1 = sub_type phi t2|, then phi is a unifier of t1 and t2; extend this to a set of equations
 
 idea: find a maximally general solution substitution phi, then find \verb|psi = rho scomp phi| where psi is an extension of phi (phi is no less general than psi)
 
