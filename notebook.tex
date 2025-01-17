@@ -215,8 +215,8 @@
   \subsubsection{Algorithms}
 
   \begin{algorithm}[H]
-    //augment to include a starting production (S' $\rightarrow$ .S\$), where S is the original top level symbol\\
-    let $T$ = \{Closure(S' $\rightarrow$ .S\$)\} //a set of states\\
+    // augment to include a starting production (S' $\rightarrow$ .S\$), where S is the original top level symbol\\
+    let $T$ = \{Closure(S' $\rightarrow$ .S\$)\} // a set of states\\
     let $E$ = \{\} //set of shift or goto edges\\
     let $changed$ = true\\
     \While{changed}{
@@ -535,14 +535,14 @@ module Fr {
 trait FrFrame {
   fn get_frame_label(&self) -> NameLabel;
   fn get_formals() -> [FrAccess];
-  fn alloc_local(escape: bool) -> FrAccess; //alloc var in frame
+  fn alloc_local(escape: bool) -> FrAccess; // alloc var in frame
 }
 \end{verbatim}
   
 \begin{verbatim}
 enum FrAccess {
-  InFrame(isize), //in memory, relative offset from fp
-  InReg(NameTemp), //in register
+  InFrame(isize), // in memory, relative offset from fp
+  InReg(NameTemp), // in register
 }
 \end{verbatim}
 
@@ -584,8 +584,8 @@ enum FrAccess {
   Interface:
 \begin{verbatim}
 module Name {
-  fn new_temp() -> NameTemp; //auto-generate id
-  fn new_label() -> NameLabel; //auto-generated id
+  fn new_temp() -> NameTemp; // auto-generate id
+  fn new_label() -> NameLabel; // auto-generated id
   fn new_label(String) -> NameLabel;
   ..
 }
@@ -1536,7 +1536,7 @@ fn forward(p) {
     next = next + sizeof(p);
     return p.f1
   }
-  p //already in to-space
+  p // already in to-space
 }
 \end{verbatim}
   
@@ -2969,7 +2969,7 @@ for each variable a:
 \begin{verbatim}
 //helper functions
 
-//create spanning tree and enumerate dfnum
+// create spanning tree and enumerate dfnum
 fn dfs_dfnum(p, n) {
   if dfnum[n].is_some(){
     return
@@ -2982,7 +2982,7 @@ fn dfs_dfnum(p, n) {
     dfs_dfnum(n, w);
   }
 }
-//add edge to spanning forest (p->n)
+// add edge to spanning forest (p->n)
 fn link(p, n){
   ancestor[n] = p
   best[n] = n
@@ -2992,8 +2992,8 @@ fn ancestor_with_lowest_semi(v){
   if ancestor[a].is_some() {
     b = ancestor_with_lowest_semi(a);
     ancestor[v] = ancestor[a]; //path compression
-    //best[v]:= best node in skipped over path btw.
-    //ancestor[v] (non-inclusive) and v (inclusive)
+    // best[v]:= best node in skipped over path btw.
+    // ancestor[v] (non-inclusive) and v (inclusive)
     if dfnum[semi[b]] < dfnum[semi[best[v]]] {
       best[v] = b;
     }
@@ -4441,7 +4441,7 @@ intermediate language for constructing a type checker: lambda calculus; do this 
 \item mutual recursion / letrec-expressions
 \end{itemize}
 
-note: pattern matching function definitions replaced by case functions with type-forming operations; alternatively impl: typchecking can still be done when pattern matches are present
+note: pattern matching function definitions replaced by case functions with type-forming operations; alternative impl: typchecking can still be done when pattern matches are present
 
 % \subsection{dealing with infinite types}
 % if \verb|T1 = .. T1 ..| occurs, then system of equation cannot be solved and expression is ill-typed $\implies$ fixed-point Y is ill-typed; avoid these
@@ -4523,9 +4523,6 @@ subst := tvname -> type_exp
 scomp :: subst -> subst -> subst
 scomp sub2 sub1 = \tvn -> sub_type sub2 (sub1 tvn)
 scomp sub2 sub1 tvn = sub_type sub2 (sub1 tvn)
-property:
-sub_type (scomp phi psi) =
-  (sub_type phi) . (sub_type psi)
 
 type_exp := TVAR tvname | TCONS [char] [type_exp]
 
@@ -4534,9 +4531,16 @@ sub_type phi (TVAR tvn) = phi tvn
 sub_type phi (TCONS tcn ts) =
   TCONS tcn (map (sub_type phi) ts)
 
+property:
+
+sub_type (scomp phi psi) =
+  (sub_type phi) . (sub_type psi)
+
 id_subst :: subst
 id_subst tvn = TVAR tvn
+
 property:
+
 sub_type id_subst t = t
 \end{verbatim}
 
@@ -4545,11 +4549,11 @@ delta substitution: a substitution that affects only one variable:
 
 \begin{verbatim}
 delta :: tvname -> type_exp -> subst
-delta tvn t = \tvn' -> = t, if tvn = tvn'
-                       = TVAR tvn', otherwise
+delta tvn t = \tvn' -> t, if tvn = tvn'
+                       TVAR tvn', otherwise
 
 delta tvn t tvn' = t, if tvn = tvn'
-                 = TVAR tvn'
+                 = TVAR tvn', otherwise
 \end{verbatim}
 
 \subsubsection{Fixed Point}
@@ -4605,7 +4609,7 @@ unify :: subst -> (type_expr, type_exp)
   -> Reply subst
 unify phi ((TVAR tvn),t)
   // unbound variable case
-  = Extend phi tvn phit, if phitvn = TVAR tvn
+  = extend phi tvn phit, if phitvn = TVAR tvn
   // bound variable case
   = unify phi (phitvn,phit) //guaranteed tvn cannot
                             //occur in phitvn or phit
@@ -4618,7 +4622,7 @@ unify phi ((TCONS tcn ts),(TVAR tvn))
 
 unify phi ((TCONS tcn ts),(TCONS tcn' ts'))
   // recursive case
-  = unifyi phi (ts zip ts'), if tcn = tcn'
+  = unifyl phi (ts $zip ts'), if tcn = tcn'
   = Failure
 
 Reply a = Ok a | Failure
@@ -4839,15 +4843,15 @@ id_subst tvn = Tvar tvn
 scomp :: subst -> subst -> subst
 scomp sub2 sub1 tvn = sub_type sub2 (sub1 tnv)
 
-//associating free variables with type schemes
+// associating free variables with type schemes
 type_env := [(vname, type_scheme)]
 \end{verbatim} 
 
 representation of type expressions internally by the compiler:
 \begin{verbatim}
 tvname = [char]
-type_expr := Tvar tvname
-             | Tcons [char] [type_exp]
+type_exp := Tvar tvname
+            | Tcons [char] [type_exp]
 type_scheme := Scheme [tvname] type_exp
 \end{verbatim}
 
@@ -4874,9 +4878,10 @@ newinstance ns (Scheme scvs t)
 // al is an association list between schematic variable and
 // unique/fresh name
 al_to_subst :: [(tvname,tvname)] -> subst
-al_to_subst al tvname = Tvar (val al tvname)
-                        , if tvname $in (dom al) //in type params
-                      = Tvar tvname, o/w //unknown, leave as
+al_to_subst al =
+  \tvname ->
+    Tvar (val al tvname), if tvname $in (dom al) //in type params
+    Tvar tvname, o/w //unknown, leave as
 \end{verbatim}
 
 \subsubsection{type checking lambda abstraction}
@@ -4896,8 +4901,8 @@ tclambda gamma ns x e
           gamma' = new_bvar (x, tvn) : gamma
           tvn = nextname ns
 tclambda1 tvn Failure = Failure
-tclambda1 tvn (Ok (phi, Q)
-  = Ok (phi, (phi tvn) Sarrow t)
+tclambda1 tvn (Ok (phi, t)
+  = Ok (phi, (phi tvn) $arrow t)
 new_bvar (x, tvn) = (x, Scheme [] (TVAR tvn))
 \end{verbatim}
 
@@ -4919,7 +4924,7 @@ tcap :: type_env -> name_supply -> vexp -> vexp
   -> reply (subst, type_exp)
 tcap gamma ns e1 e2
   = tcap1 tvn (tcl gamma ns’ [e1, e2])
-    where tvn = next.name ns
+    where tvn = nextname ns
           ns' = deplete ns
 tcap1 tvn Failure = Failure
 tcap1 tvn (Ok (phi, [t1, t2]))
@@ -4935,11 +4940,11 @@ tcap2 tvn (Ok phi) = Ok (phi, phi tvn)
 
 \verb|(Let xs es e)|
 
-instantiate fresh/new type schemes for variables in definition variable list \verb|xs| where type schemes have empty schemetic variables list $\iff$ diesgn s.t. all occurences of defined names in RHS of recursive definition should have same types
+instantiate fresh/new type schemes for variables in definition variable list \verb|xs| where type schemes have empty schemetic variables list $\iff$ design s.t. all occurences of defined names in RHS of recursive definition should have same types
 
 type check RHS \verb|es| yielding substitution and list of types that can be derived for RHS if type env. is constrained by the substituion
 
-unify RHS derived types with their corresponding variables' types in context of that substitution $\iff$ design st.t. RHS of recursive definitions receive some types as occurences of corresponding variables; unification succeeds $\implies$ constraint can be met
+unify RHS derived types with their corresponding variables' types in context of that substitution $\iff$ design s.t. RHS of recursive definitions receive some types as occurences of corresponding variables; unification succeeds $\implies$ constraint can be met
 
 type check the body \verb|e| after updating type env. with schematic types
 
@@ -4948,7 +4953,7 @@ tclet :: type_env -> name_supply
   -> [vname] -> [vexp] -> vexp
   -> reply (subst, type_exp)
 tclet gamma ns xs es e
-  = tcleti gamma nsO xs e (tcl gamma ns1 es)
+  = tclet1 gamma nsO xs e (tcl gamma ns1 es)
     where (nsO,ns1) = split ns
 tclet1 gamma ns xs e Failure = Failure
 tclet1 gamma ns xs e (Ok (phi,ts))
@@ -4974,7 +4979,7 @@ genbar unknowns ns t = Scheme (map snd al) t'
 nodups :: [a] -> [a]
 nodups xs = f [] xs
             where
-            f ace [] = acc
+            f acc [] = acc
             f acc (x:xs) = f acc xs, x in acc
                          = f (x:acc) xs
 \end{verbatim}
@@ -5906,7 +5911,7 @@ Xr[[ x$_1$ = E$_1$
      x$_n$ = E$_n$]] p d =
   (p[x$_1$ = d + 1
      ..
-     x$_n$ = d + n], d + n) //augmentation of p and d
+     x$_n$ = d + n], d + n) // augmentation of p and d
 \end{lstlisting}
 
 note: if definition body is a single varialb ename fou din the same letrec:
@@ -5989,8 +5994,8 @@ operation of G-machine $\iff$ state transition, eg:
 <n: S, G[n = Ap n$_1$ n$_2$], Eval: C, D> $\Rightarrow$
   <n:[], G[n = Ap n$_1$ n$_2$], Unwind:[], (S,C): D>
 
-//will eventually update the CAF function node with
-//  result of reduction
+// will eventually update the CAF function node with
+//   result of reduction
 <n: S, G[n = Fun 0 C'], Eval: C, D> $\Rightarrow$
   <n:[], G[n = Fun 0 C'], C':[], (S,c): D>
 
@@ -6039,8 +6044,8 @@ eg:
 
 \begin{lstlisting}
 <O, S, G, Begin:C, D> $\Rightarrow$ <O, [], [], C, []>
-//note: empty stack, graph, dump
-//and runs rest of the code C
+// note: empty stack, graph, dump
+// and runs rest of the code C
 \end{lstlisting}
 
 \subsection{Impl. of G-code}
@@ -6365,8 +6370,8 @@ C[[ E$_2$ ]] p (d+1);
 C[[ E$_1$ ]] p (d+2);
 PushGLobal W;
 Squeeze 4 2; //rid of F's 2nd and 1st args on stack
-//at runtime, do case analysis on
-//function on top of the stack
+// at runtime, do case analysis on
+// function on top of the stack
 Dispatch 3 
 \end{lstlisting}
 
@@ -6443,7 +6448,7 @@ entry into code for the function after arity check
     \end{itemize}
 
     \begin{lstlisting}
-//eg, assuming W takes 4 arguments
+// eg, assuming W takes 4 arguments
 stack:
 ---
 root of W-redex -> v$_4$
@@ -6454,7 +6459,7 @@ n$_1$:E$_1$
 f: W
 ..
 
-//after arrangement by Dispatch
+// after arrangement by Dispatch
 root of W-redex
 
 stack:
@@ -7006,10 +7011,10 @@ example of compute payload attached to \verb|linalg.generic| op:
 \begin{lstlisting}
 ins(%1: tensor<?x?x?x?xf32>)
 outs(%5: tensor<?x?xf32>){
-  //arg1 <-> %1, arg2 <-> %5
+  // arg1 <-> %1, arg2 <-> %5
   ^bb0(%arg1: f32, %arg2: f32):
     % 17 = arith.addf %arg2, %arg1 : f32
-    //yield to %5
+    // yield to %5
     linalg.yield %17 : f32
 } -> tensor<?x?xf32>
 
