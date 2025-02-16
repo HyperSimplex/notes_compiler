@@ -2860,7 +2860,7 @@ $(y=x \vee \neg(x \text{ dominates } y))\\ \iff \neg (idom(c) = sdom(y)),\ x=ido
   
   $\iff$ $y$ dominates some predecessor of $x$ and not dominate some other predecessor of $x$ wrt. reverse CFG
   
-  \subsubsection{Add $\phi$-functions}
+  \subsubsection{Add $\phi$-functions \cite{appelbook}}
 
   \begin{algorithm}[H]
     \SetKwInOut{Input}{Input}
@@ -2890,9 +2890,11 @@ $(y=x \vee \neg(x \text{ dominates } y))\\ \iff \neg (idom(c) = sdom(y)),\ x=ido
     \caption{Add $\phi$ Functions\label{Algo_add_phi_functions}}
   \end{algorithm}  
 
-  \subsubsection{Renaming Variables}
+  \vfill\null
+  \columnbreak
+    
+  \subsubsection{Renaming Variables \cite{appelbook}}
 \begin{verbatim}
-
 fn rename_for_var(n: node/basic_block, a: variable):
   for each statement S in n:
     for each use of var x in S and S is not a phi-function:
@@ -2916,9 +2918,159 @@ for each variable a:
   count[a] = 0
   stack[a] = [0]
   rename_for_var(entry_node, a)
-
 \end{verbatim}
 
+  \vfill\null
+  \columnbreak
+  
+  \subsubsection{$\phi$-placement \cite{wolfebook}}
+  alternative $\phi$-placement algo\\
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{$v$: variable, DF: dominance frontier, Defs: definitions}
+    \Output{nodes with $\phi$-functions added for var $v$}
+    work\_list :: [Node]\\
+    work\_list \leftarrow [\ ]\\
+    //a set of nodes that are definition/assignment for a given variable\\
+    Defs :: Variable \rightarrow \{Node\}\\
+    //map of dominance frontier for a given node\\
+    DF :: Node \rightarrow \{Node\}\\
+    //tracks if Node has already been added to worklist for current var v\\
+    in\_work :: Node \rightarrow Bool\\
+    in\_work \leftarrow \o\\
+    //tracks phi term insertion at Node for current variable v\\
+    added :: Node \rightarrow Bool\\
+    added \leftarrow \o\\
+    \For{$x :: Node \in$ Defs(v)}{
+      in\_work(x) \leftarrow true\\
+      work\_list \leftarrow work\_list \cup \{x\}\\
+    }
+    \While{x :: Node \leftarrow work\_list.take()}{
+      \For{$w :: Node \in$ DF(x)}{
+        \If{$\neg added(w)$}{
+          add $\phi$-term \text{ for v at w}\\
+          added(w) \leftarrow true\\
+          \If{$\neg in\_work(w)$}{
+            //\phi\text{ counts as a definition}\\
+            work\_list \leftarrow work\_list \cup \{w\}\\
+            in\_work(x) \leftarrow true\\
+          }
+        }
+      }
+    }
+    \caption{$\phi$ placement\label{Algo_phi_placement}}
+  \end{algorithm}
+
+  invoke on every variable:
+
+  \begin{lstlisting}
+    // compute dominance_frontier..
+    // obtain defs..
+    for v in variables:
+      phi_placement(v, dominance_frontier, defs)
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+    
+  \subsubsection{FUD chaining/linking algo \cite{wolfebook}}
+  Factored Use Def chaining\\
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{node $x$}
+    \Output{chain, $\phi$-chain}
+    chain :: \text{reference of a variable being used} \rightarrow \text{def of var}\\
+    $\phi$-chain :: $\phi$-term reference \rightarrow index to predecessor \rightarrow \text{reaching def}\\
+    currdef :: variable \rightarrow \text{current definition of variable}\\
+    //mapping to a set of nodes that the input node immediately dominates\\
+    dom\_child :: node \rightarrow \text{dominator children of given node}\\
+    //saving old reaching definition when a new definition is encountered\\
+    savechain :: reference of a def/$\phi$-term \rightarrow \text{reaching def}\\
+    succ :: node \rightarrow \text{successor node of the cfg}\\
+    \For{use/def/$\phi$-term R \in x}{
+      m \leftarrow \text{variable referenced at }R\\
+      \If{R\text{ is a use}}{
+        //linking\\
+        chain(R) \leftarrow currdef(m)\\
+      }
+      \ElseIf{R\text{ is a def }/ $\phi$-term}{
+        //cache current reaching definition\\
+        savechain(R) \leftarrow currdef(m)\\
+        //new definition\\
+        currdef(m) \leftarrow R\\
+      }
+    }
+    //linking at $\phi$-terms\\
+    \For{y \in succ(x)}{
+      idx \leftarrow which\_pred(x \rightarrow y)\\
+      \For{$\phi$-term R \in y}{
+        m \leftarrow \text{variable referenced at R}\\
+        $\phi$-chain(R)[idx] \leftarrow currdef(m)\\
+      }
+    }
+    \For{y \in dom\_child(x)}{
+      //depth-first recursion\\
+      fud\_chain(y)\\
+    }
+    //restore previously cached reaching definitions\\
+    \For{(use/def/$\phi$-term R \in x).rev()}{
+      \If{R\text{ is a def }/ $\phi$-term}{
+        m \leftarrow \text{variable referenced at }R\\
+        currdef(m) \leftarrow savechain(R)\\
+      }
+    }
+    \caption{$fud\_chain$\label{Algo_fud_chaining}}
+  \end{algorithm}
+
+  invoke on entry:
+  \begin{lstlisting}
+    // perform phi placement algo..
+
+    fud_chain(entry_node)
+  \end{lstlisting}
+  
+  \vfill\null
+  \columnbreak
+
+  \subsubsection{Finding All Reaching Definitions\cite{wolfebook}}
+  \begin{algorithm}[H]
+    \SetKwInOut{Input}{Input}
+    \SetKwInOut{Output}{Output}
+    \Input{d: defintion/$\phi$-term, u: reference/use of a variable}
+    \Output{defs}
+    defs :: reference/use of a variable \rightarrow \{\text{definition of that variable}\}\\
+    //tracks visited definition for current use u\\
+    marked :: definition \rightarrow reference\\
+    \If{marked(d) = u}{
+      return\\
+    }
+    marked(d) \leftarrow u\\
+    \If{$\text{d is a definition for u}$}{
+      $defs(u) \leftarrow defs(u) \cup \{d\}$\\
+    }
+    \If{$\text{d is a }\phi$-term}{
+      \For{$idx \in [0..chain(d).len())$}{
+        $find\_reaching\_defs(\phi$-chain$(d)[idx], u)$\\
+      }
+    }
+    \ElseIf{\text{d is a killing definition}}{
+      return\\
+    }
+    \Else{
+      //follow def-def link\\
+      $find\_reaching\_defs(chain(d), u)$\\
+    }
+    \caption{$find\_reaching\_defs$\label{Algo_find_reaching_defs}}
+  \end{algorithm}
+
+  invoke on target use u:
+  \begin{lstlisting}
+    defs(u) = None
+    find_reaching_defs(chain(u), u)
+  \end{lstlisting}
+    
   \subsubsection{Computing Dominator Tree}
 
   creating a spanning tree with dfs and enumerate nodes ($dfnum(n)$) on first visit: $dfnum(a) \leq dfnum(b) \implies$ a is an ancestor of b
@@ -4827,7 +4979,7 @@ sub_te phi gamma =
 subst :: tvname -> type_exp
 
 sub_scheme :: subst -> type_scheme -> type_scheme
-sub_sceheme phi (Scheme scvs t) =
+sub_scheme phi (Scheme scvs t) =
   Scheme scvs (sub_type (exclude phi scvs) t)
   where: exclude phi scvs tvn = Tvar tvn, tvn $in scvs
                               = phi tvn, o/w
