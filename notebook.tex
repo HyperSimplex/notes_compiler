@@ -3062,7 +3062,7 @@ for each variable a:
       //follow def-def link\\
       $find\_reaching\_defs(chain(d), u)$\\
     }
-    \caption{$find\_reaching\_defs$\label{Algo_find_reaching_defs}}
+    \caption{find\_reaching\_defs\label{Algo_find_reaching_defs}}
   \end{algorithm}
 
   invoke on target use u:
@@ -3070,6 +3070,15 @@ for each variable a:
     defs(u) = None
     find_reaching_defs(chain(u), u)
   \end{lstlisting}
+
+  \subsubsection{Algo for Constant Propagation\cite{wolfebook}}
+  TODO
+  
+  \subsubsection{Algo for Scalar Data Dependency (Direction/Distance) in Loops\cite{wolfebook}}
+  TODO
+
+  \vfill\null
+  \columnbreak
     
   \subsubsection{Computing Dominator Tree}
 
@@ -3113,7 +3122,10 @@ for each variable a:
       idom(y) &, semidom(y) \neq semidom(n)\\
     \end{cases}
   \end{align*}
-  
+
+\vfill\null
+\pagebreak
+
   \subsubsection{Lengauer-Tarjan Algorithm}
 
   algo. for computing idoms using semidominators
@@ -3153,7 +3165,10 @@ fn ancestor_with_lowest_semi(v){
   best[v]
 }
 \end{verbatim}
-  
+
+\vfill\null
+\columnbreak
+
 \begin{verbatim}
 N = 0;
 dfnum = nodes.iter().map(|_| None);
@@ -3169,30 +3184,28 @@ let samedom = nodes.iter().map(|_| None);
 for i in [1..N).rev() { //skip root
   let n = order[i];
   let p = parent[n];
-  //calc. semidom of n using semidominator theorem
+  // calc. semidom of n using semidominator theorem
   let s_prime = n.predecessors().map(|v|{
     if dfnum[v] <= dfnum[n] { v }
     }else{ semi[ancestor_with_lowest_semi(v)] }})
     .min_by(|a,b| dfnum[a] < dfnum[b]);
   let s = p.min(s_prime);
-
-  semi[n] = s; //s is semidominator of n with lowest dfnum
-
-  //To defer calc. of n's dominator until
-  //path from s to n has been linked in forest.
-  //These are candidate nodes that can be idom of n
-  //maps s -> {n: s maybe the idom of n}
+  // s is semidominator of n with lowest dfnum
+  semi[n] = s; 
+  // To defer calc. of n's dominator until
+  //   path from s to n has been linked in forest.
+  //   These are candidate nodes that can be idom of n
+  //   maps s -> {n: s maybe the idom of n}
   bucket[s] = bucket[s].union({n});
-
   link(p, n);
-
-  //calculate idom of v,
-  //where p may be the idom of v
+  // calculate idom of v,
+  //   where p may be the idom of v
   for v in bucket[p] {
-    //path p to v linked in to spanning forest by now
+    // path p to v linked in to spanning forest by now
     y = ancestor_with_lowest_semi(v);
     if semi[y] == semi[v] {
-      //use Dominator Theorem's 1st clause to calc. idom[v]
+      // use Dominator Theorem's 1st clause to
+      //   calc. idom[v]
       idom[v] = semi[v]; //semi[v]==p
     }else{
       samedom[v] = y; //defer until idom(y) is calculated
@@ -3200,8 +3213,8 @@ for i in [1..N).rev() { //skip root
   }
   bucket[p].clear();
 }
-
-//deferred calculation using Dominator Theorem's 2nd clause
+// deferred calculation using
+//   Dominator Theorem's 2nd clause
 for i in [1..N) {
   let n = order[i];
   if samedom[n].is_some(){
@@ -3209,8 +3222,11 @@ for i in [1..N) {
   }
 }
 \end{verbatim}
- 
-  \subsection{Algos using SSA}
+
+\vfill\null
+\columnbreak
+
+\subsection{Algos using SSA}
 
   data structures:
 
@@ -3350,7 +3366,7 @@ fn try_remove_block(L: block) {
 }
 \end{verbatim}
 
-  \subsubsection{Conditional Constant Propagation}
+  \subsubsection{Conditional Constant Propagation\cite{appelbook}}
 
   goal: extend simple constant propagation to propagate through conditional branches
 
@@ -3403,11 +3419,11 @@ fn try_remove_block(L: block) {
   
   Dead Code elimination:
 
-  assume statement is dead unless ther eis evidence that it contributes to result of the program
+  assume statement is dead unless there is evidence that it contributes to result of the program
 
   solve by iteration:
   \begin{itemize}
-  \item mark live any statement that ferforms I/O, memory stores, side-effects
+  \item mark live any statement that performs I/O, memory stores, side-effects
   \item mark live any definition of variable that is used by any live statement (reverse flow problem)
   \item mark live conditional statement where there exists another live statement that is control dependent on the conditional branch
   \end{itemize}
